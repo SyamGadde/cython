@@ -2,8 +2,9 @@
 Cython Changelog
 ================
 
+=======
 Latest
-=================
+=======
 
 Features added
 --------------
@@ -11,8 +12,67 @@ Features added
 Bugs fixed
 ----------
 
+* Syntax highlighting in ``cython-mode.el`` for Emacs no longer
+  incorrectly highlights keywords found as part of longer names.
+
+Other changes
+-------------
+
+* Removed support for CPython 2.4, 2.5 and 3.1.
+
+
+0.20.2
+===================
+
+Features added
+--------------
+
+* Some optimisations for set/frozenset instantiation.
+
+* Support for C++ unordered_set and unordered_map.
+
+Bugs fixed
+----------
+
+* Compiler crash on readonly properties in "binding" mode.
+
+* Auto-encoding with ``c_string_encoding=ascii`` failed in Py3.3.
+
+* Crash when subtyping freelist enabled Cython extension types with
+  Python classes that use ``__slots__``.
+
+* Freelist usage is restricted to CPython to avoid problems with other
+  Python implementations.
+
+* Memory leak in memory views when copying overlapping, contiguous slices.
+
+* Format checking when requesting non-contiguous buffers from
+  ``cython.array`` objects was disabled in Py3.
+
+* C++ destructor calls in extension types could fail to compile in clang.
+
+* Buffer format validation failed for sequences of strings in structs.
+
+* Docstrings on extension type attributes in .pxd files were rejected.
+
+
+0.20.1 (2014-02-11)
+===================
+
+Bugs fixed
+----------
+
+* Build error under recent MacOS-X versions where ``isspace()`` could not be
+  resolved by clang.
+
 * List/Tuple literals multiplied by more than one factor were only multiplied
   by the last factor instead of all.
+
+* Lookups of special methods (specifically for context managers) could fail
+  in Python <= 2.6/3.1.
+
+* Local variables were erroneously appended to the signature introspection
+  of Cython implemented functions with keyword-only arguments under Python 3.
 
 * In-place assignments to variables with inferred Python builtin/extension
   types could fail with type errors if the result value type was incompatible
@@ -27,8 +87,6 @@ Bugs fixed
   assignments within a mix of inferred Python variables and integer
   variables.
 
-Other changes
--------------
 
 
 0.20 (2014-01-18)

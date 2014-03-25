@@ -1598,6 +1598,17 @@ class EarlyReplaceBuiltinCalls(Visitor.EnvTransform):
             return ExprNodes.AsTupleNode(node.pos, arg=result)
         return node
 
+    def _handle_simple_function_frozenset(self, node, pos_args):
+        """Replace frozenset([...]) by frozenset((...)) as tuples are more efficient.
+        """
+        if len(pos_args) != 1:
+            return node
+        if pos_args[0].is_sequence_constructor and not pos_args[0].args:
+            del pos_args[0]
+        elif isinstance(pos_args[0], ExprNodes.ListNode):
+            pos_args[0] = pos_args[0].as_tuple()
+        return node
+
     def _handle_simple_function_list(self, node, pos_args):
         if not pos_args:
             return ExprNodes.ListNode(node.pos, args=[], constant_result=[])
@@ -1972,13 +1983,13 @@ class OptimizeBuiltinCalls(Visitor.MethodDispatcherTransform):
         """
         if len(pos_args) != 1:
             return node
-        list_arg = pos_args[0]
-        if list_arg.type is not Builtin.list_type:
+        arg = pos_args[0]
+        if arg.type is Builtin.tuple_type and not arg.may_be_none():
+            return arg
+        if arg.type is not Builtin.list_type:
             return node
-        if not isinstance(list_arg, (ExprNodes.ComprehensionNode,
-                                     ExprNodes.ListNode)):
-            pos_args[0] = list_arg.as_none_safe_node(
-                "'NoneType' object is not iterable")
+        pos_args[0] = arg.as_none_safe_node(
+            "'NoneType' object is not iterable")
 
         return ExprNodes.PythonCapiCallNode(
             node.pos, "PyList_AsTuple", self.PyList_AsTuple_func_type,
@@ -1986,16 +1997,15 @@ class OptimizeBuiltinCalls(Visitor.MethodDispatcherTransform):
             is_temp = node.is_temp
             )
 
-    PyObject_AsDouble_func_type = PyrexTypes.CFuncType(
-        PyrexTypes.c_double_type, [
-            PyrexTypes.CFuncTypeArg("obj", PyrexTypes.py_object_type, None),
-            ],
-        exception_value = "((double)-1)",
-        exception_check = True)
+    PySet_New_func_type = PyrexTypes.CFuncType(
+        Builtin.set_type, [
+            PyrexTypes.CFuncTypeArg("it", PyrexTypes.py_object_type, None)
+        ])
 
     def _handle_simple_function_set(self, node, function, pos_args):
-        if len(pos_args) == 1 and isinstance(pos_args[0], (ExprNodes.ListNode,
-                                                           ExprNodes.TupleNode)):
+        if len(pos_args) != 1:
+            return node
+        if pos_args[0].is_sequence_constructor:
             # We can optimise set([x,y,z]) safely into a set literal,
             # but only if we create all items before adding them -
             # adding an item may raise an exception if it is not
@@ -2012,7 +2022,42 @@ class OptimizeBuiltinCalls(Visitor.MethodDispatcherTransform):
             for temp in temps[::-1]:
                 result = UtilNodes.EvalWithTempExprNode(temp, result)
             return result
-        return node
+        else:
+            # PySet_New(it) is better than a generic Python call to set(it)
+            return ExprNodes.PythonCapiCallNode(
+                node.pos, "PySet_New",
+                self.PySet_New_func_type,
+                args=pos_args,
+                is_temp=node.is_temp,
+                py_name="set")
+
+    PyFrozenSet_New_func_type = PyrexTypes.CFuncType(
+        Builtin.frozenset_type, [
+            PyrexTypes.CFuncTypeArg("it", PyrexTypes.py_object_type, None)
+        ])
+
+    def _handle_simple_function_frozenset(self, node, function, pos_args):
+        if not pos_args:
+            pos_args = [ExprNodes.NullNode(node.pos)]
+        elif len(pos_args) > 1:
+            return node
+        elif pos_args[0].type is Builtin.frozenset_type and not pos_args[0].may_be_none():
+            return pos_args[0]
+        # PyFrozenSet_New(it) is better than a generic Python call to frozenset(it)
+        return ExprNodes.PythonCapiCallNode(
+            node.pos, "__Pyx_PyFrozenSet_New",
+            self.PyFrozenSet_New_func_type,
+            args=pos_args,
+            is_temp=node.is_temp,
+            utility_code=UtilityCode.load_cached('pyfrozenset_new', 'Builtins.c'),
+            py_name="frozenset")
+
+    PyObject_AsDouble_func_type = PyrexTypes.CFuncType(
+        PyrexTypes.c_double_type, [
+            PyrexTypes.CFuncTypeArg("obj", PyrexTypes.py_object_type, None),
+            ],
+        exception_value = "((double)-1)",
+        exception_check = True)
 
     def _handle_simple_function_float(self, node, function, pos_args):
         """Transform float() into either a C type cast or a faster C
@@ -2404,7 +2449,7 @@ class OptimizeBuiltinCalls(Visitor.MethodDispatcherTransform):
         func_type = self.PyByteArray_Append_func_type
 
         value = unwrap_coerced_node(args[1])
-        if value.type.is_int:
+        if value.type.is_int or isinstance(value, ExprNodes.IntNode):
             value = value.coerce_to(PyrexTypes.c_int_type, self.current_env())
             utility_code = UtilityCode.load_cached("ByteArrayAppend", "StringTools.c")
         elif value.is_string_literal:
@@ -3662,7 +3707,7 @@ class ConsolidateOverflowCheck(Visitor.CythonTransform):
     sequence will be evaluated and the overflow bit checked only at the end.
     """
     overflow_bit_node = None
-    
+
     def visit_Node(self, node):
         if self.overflow_bit_node is not None:
             saved = self.overflow_bit_node
@@ -3672,7 +3717,7 @@ class ConsolidateOverflowCheck(Visitor.CythonTransform):
         else:
             self.visitchildren(node)
         return node
-    
+
     def visit_NumBinopNode(self, node):
         if node.overflow_check and node.overflow_fold:
             top_level_overflow = self.overflow_bit_node is None

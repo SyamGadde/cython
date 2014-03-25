@@ -1,7 +1,7 @@
 from pair cimport pair
 
-cdef extern from "<set>" namespace "std" nogil:
-    cdef cppclass set[T]:
+cdef extern from "<unordered_set>" namespace "std" nogil:
+    cdef cppclass unordered_set[T]:
         cppclass iterator:
             T& operator*()
             iterator operator++()
@@ -18,16 +18,16 @@ cdef extern from "<set>" namespace "std" nogil:
         #    pass
         #cppclass const_reverse_iterator(reverse_iterator):
         #    pass
-        set() except +
-        set(set&) except +
-        #set(key_compare&)
-        #set& operator=(set&)
-        bint operator==(set&, set&)
-        bint operator!=(set&, set&)
-        bint operator<(set&, set&)
-        bint operator>(set&, set&)
-        bint operator<=(set&, set&)
-        bint operator>=(set&, set&)
+        unordered_set() except +
+        unordered_set(unordered_set&) except +
+        #unordered_set(key_compare&)
+        #unordered_set& operator=(unordered_set&)
+        bint operator==(unordered_set&, unordered_set&)
+        bint operator!=(unordered_set&, unordered_set&)
+        bint operator<(unordered_set&, unordered_set&)
+        bint operator>(unordered_set&, unordered_set&)
+        bint operator<=(unordered_set&, unordered_set&)
+        bint operator>=(unordered_set&, unordered_set&)
         iterator begin()
         #const_iterator begin()
         void clear()
@@ -54,7 +54,7 @@ cdef extern from "<set>" namespace "std" nogil:
         reverse_iterator rend()
         #const_reverse_iterator rend()
         size_t size()
-        void swap(set&)
+        void swap(unordered_set&)
         iterator upper_bound(T&)
         #const_iterator upper_bound(T&)
         #value_compare value_comp()

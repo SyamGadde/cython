@@ -133,6 +133,9 @@ The ``cdef`` statement is used to make C level declarations for:
         int age
         float volume
 
+..note Structs can be declared as ``cdef packed struct``, which has
+the same effect as the C directive ``#pragma pack(1)``.
+
 :Unions:
 
 ::

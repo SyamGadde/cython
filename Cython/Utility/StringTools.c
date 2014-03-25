@@ -567,10 +567,8 @@ static int __Pyx_PyBytes_SingleTailmatch(PyObject* self, PyObject* arg, Py_ssize
     Py_ssize_t sub_len;
     int retval;
 
-#if PY_VERSION_HEX >= 0x02060000
     Py_buffer view;
     view.obj = NULL;
-#endif
 
     if ( PyBytes_Check(arg) ) {
         sub_ptr = PyBytes_AS_STRING(arg);
@@ -583,15 +581,10 @@ static int __Pyx_PyBytes_SingleTailmatch(PyObject* self, PyObject* arg, Py_ssize
     }
 #endif
     else {
-#if PY_VERSION_HEX < 0x02060000
-        if (unlikely(PyObject_AsCharBuffer(arg, &sub_ptr, &sub_len)))
-            return -1;
-#else
         if (unlikely(PyObject_GetBuffer(self, &view, PyBUF_SIMPLE) == -1))
             return -1;
         sub_ptr = (const char*) view.buf;
         sub_len = view.len;
-#endif
     }
 
     if (end > self_len)
@@ -616,10 +609,8 @@ static int __Pyx_PyBytes_SingleTailmatch(PyObject* self, PyObject* arg, Py_ssize
     else
         retval = 0;
 
-#if PY_VERSION_HEX >= 0x02060000
     if (view.obj)
         PyBuffer_Release(&view);
-#endif
 
     return retval;
 }
@@ -715,7 +706,7 @@ static CYTHON_INLINE PyObject* __Pyx_PyBytes_Join(PyObject* sep, PyObject* value
 
 #if !CYTHON_COMPILING_IN_CPYTHON
 static CYTHON_INLINE PyObject* __Pyx_PyBytes_Join(PyObject* sep, PyObject* values) {
-    return PyObject_CallMethodObjArgs(sep, PYIDENT("join"), values, NULL)
+    return PyObject_CallMethodObjArgs(sep, PYIDENT("join"), values, NULL);
 }
 #endif
 

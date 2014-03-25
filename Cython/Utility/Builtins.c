@@ -370,47 +370,28 @@ static CYTHON_INLINE PyObject* __Pyx_PyDict_ViewItems(PyObject* d) {
     return __Pyx_PyObject_CallMethod0(d, (PY_MAJOR_VERSION >= 3) ? PYIDENT("items") : PYIDENT("viewitems"));
 }
 
-//////////////////// pyset_compat.proto ////////////////////
+//////////////////// pyfrozenset_new.proto ////////////////////
+//@substitute: naming
 
-#if PY_VERSION_HEX < 0x02050000
-#ifndef PyAnySet_CheckExact
-
-#define PyAnySet_CheckExact(ob) \
-    ((ob)->ob_type == &PySet_Type || \
-     (ob)->ob_type == &PyFrozenSet_Type)
-
-#define PySet_New(iterable) \
-    PyObject_CallFunctionObjArgs((PyObject *)&PySet_Type, (iterable), NULL)
-
-#define Pyx_PyFrozenSet_New(iterable) \
-    PyObject_CallFunctionObjArgs((PyObject *)&PyFrozenSet_Type, (iterable), NULL)
-
-#define PySet_Size(anyset) \
-    PyObject_Size((anyset))
-
-#define PySet_Contains(anyset, key) \
-    PySequence_Contains((anyset), (key))
-
-#define PySet_Pop(set) \
-    PyObject_CallMethod((set), (char*)"pop", NULL)
-
-static CYTHON_INLINE int PySet_Clear(PyObject *set) {
-    PyObject *ret = PyObject_CallMethod(set, (char*)"clear", NULL);
-    if (!ret) return -1;
-    Py_DECREF(ret); return 0;
+static CYTHON_INLINE PyObject* __Pyx_PyFrozenSet_New(PyObject* it) {
+    if (it) {
+        PyObject* result;
+        if (PyFrozenSet_CheckExact(it)) {
+            Py_INCREF(it);
+            return it;
+        }
+        result = PyFrozenSet_New(it);
+        if (unlikely(!result))
+            return NULL;
+        if (likely(PySet_GET_SIZE(result)))
+            return result;
+        // empty frozenset is a singleton
+        // seems wasteful, but CPython does the same
+        Py_DECREF(result);
+    }
+    #if CYTHON_COMPILING_IN_CPYTHON
+    return PyFrozenSet_Type.tp_new(&PyFrozenSet_Type, $empty_tuple, NULL);
+    #else
+    return PyObject_Call((PyObject*)&PyFrozenSet_Type, $empty_tuple, NULL);
+    #endif
 }
-
-static CYTHON_INLINE int PySet_Discard(PyObject *set, PyObject *key) {
-    PyObject *ret = PyObject_CallMethod(set, (char*)"discard", (char*)"(O)", key);
-    if (!ret) return -1;
-    Py_DECREF(ret); return 0;
-}
-
-static CYTHON_INLINE int PySet_Add(PyObject *set, PyObject *key) {
-    PyObject *ret = PyObject_CallMethod(set, (char*)"add", (char*)"(O)", key);
-    if (!ret) return -1;
-    Py_DECREF(ret); return 0;
-}
-
-#endif /* PyAnySet_CheckExact (<= Py2.4) */
-#endif /* < Py2.5  */

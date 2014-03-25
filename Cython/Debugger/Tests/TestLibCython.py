@@ -123,6 +123,7 @@ class DebuggerTestCase(unittest.TestCase):
                 workdir=self.tempdir,
                 # we clean up everything (not only compiled files)
                 cleanup_workdir=False,
+                tags=runtests.parse_tags(codefile),
                 **opts
             )
 

@@ -2,11 +2,7 @@ import cython
 from Cython import __version__
 
 import re, os, sys, time
-try:
-    from glob import iglob
-except ImportError:
-    # Py2.4
-    from glob import glob as iglob
+from glob import iglob
 
 try:
     import gzip
@@ -64,6 +60,7 @@ if sys.version_info[0] < 3:
 else:
     def encode_filename_in_py2(filename):
         return filename
+    basestring = str
 
 def extended_iglob(pattern):
     if '**/' in pattern:
@@ -148,14 +145,18 @@ distutils_settings = {
 
 @cython.locals(start=long, end=long)
 def line_iter(source):
-    start = 0
-    while True:
-        end = source.find('\n', start)
-        if end == -1:
-            yield source[start:]
-            return
-        yield source[start:end]
-        start = end+1
+    if isinstance(source, basestring):
+        start = 0
+        while True:
+            end = source.find('\n', start)
+            if end == -1:
+                yield source[start:]
+                return
+            yield source[start:end]
+            start = end+1
+    else:
+        for line in source:
+            yield line
 
 class DistutilsInfo(object):
 
@@ -224,6 +225,14 @@ class DistutilsInfo(object):
                     value = aliases[value]
             resolved.values[key] = value
         return resolved
+
+    def apply(self, extension):
+        for key, value in self.values.items():
+            type = distutils_settings[key]
+            if type in [list, transitive_list]:
+                getattr(extension, key).extend(value)
+            else:
+                setattr(extension, key, value)
 
 @cython.locals(start=long, q=long, single_q=long, double_q=long, hash_mark=long,
                end=long, k=long, counter=long, quote_len=long)

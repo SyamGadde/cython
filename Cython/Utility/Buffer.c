@@ -107,9 +107,7 @@ typedef struct {
 /////////////// GetAndReleaseBuffer ///////////////
 #if PY_MAJOR_VERSION < 3
 static int __Pyx_GetBuffer(PyObject *obj, Py_buffer *view, int flags) {
-  #if PY_VERSION_HEX >= 0x02060000
     if (PyObject_CheckBuffer(obj)) return PyObject_GetBuffer(obj, view, flags);
-  #endif
 
     {{for type_ptr, getbuffer, releasebuffer in types}}
       {{if getbuffer}}
@@ -117,29 +115,7 @@ static int __Pyx_GetBuffer(PyObject *obj, Py_buffer *view, int flags) {
       {{endif}}
     {{endfor}}
 
-  #if PY_VERSION_HEX < 0x02060000
-    if (obj->ob_type->tp_dict) {
-        PyObject *getbuffer_cobj = PyObject_GetItem(
-            obj->ob_type->tp_dict, PYIDENT("__pyx_getbuffer"));
-        if (getbuffer_cobj) {
-            getbufferproc func = (getbufferproc) PyCObject_AsVoidPtr(getbuffer_cobj);
-            Py_DECREF(getbuffer_cobj);
-            if (!func)
-                goto fail;
-
-            return func(obj, view, flags);
-        } else {
-            PyErr_Clear();
-        }
-    }
-  #endif
-
     PyErr_Format(PyExc_TypeError, "'%.200s' does not have the buffer interface", Py_TYPE(obj)->tp_name);
-
-#if PY_VERSION_HEX < 0x02060000
-fail:
-#endif
-
     return -1;
 }
 
@@ -147,12 +123,10 @@ static void __Pyx_ReleaseBuffer(Py_buffer *view) {
     PyObject *obj = view->obj;
     if (!obj) return;
 
-  #if PY_VERSION_HEX >= 0x02060000
     if (PyObject_CheckBuffer(obj)) {
         PyBuffer_Release(view);
         return;
     }
-  #endif
 
     {{for type_ptr, getbuffer, releasebuffer in types}}
       {{if releasebuffer}}
@@ -160,31 +134,6 @@ static void __Pyx_ReleaseBuffer(Py_buffer *view) {
       {{endif}}
     {{endfor}}
 
-  #if PY_VERSION_HEX < 0x02060000
-    if (obj->ob_type->tp_dict) {
-        PyObject *releasebuffer_cobj = PyObject_GetItem(
-            obj->ob_type->tp_dict, PYIDENT("__pyx_releasebuffer"));
-        if (releasebuffer_cobj) {
-            releasebufferproc func = (releasebufferproc) PyCObject_AsVoidPtr(releasebuffer_cobj);
-            Py_DECREF(releasebuffer_cobj);
-            if (!func)
-                goto fail;
-            func(obj, view);
-            return;
-        } else {
-            PyErr_Clear();
-        }
-    }
-  #endif
-
-    goto nofail;
-
-#if PY_VERSION_HEX < 0x02060000
-fail:
-#endif
-    PyErr_WriteUnraisable(obj);
-
-nofail:
     Py_DECREF(obj);
     view->obj = NULL;
 }
@@ -199,7 +148,10 @@ nofail:
     Buffer type checking. Utility code for checking that acquired
     buffers match our assumptions. We only need to check ndim and
     the format string; the access mode/flags is checked by the
-    exporter.
+    exporter. See:
+
+    http://docs.python.org/3/library/struct.html
+    http://legacy.python.org/dev/peps/pep-3118/#additions-to-the-struct-string-syntax
 
     The alignment code is copied from _struct.c in Python.
 }}
@@ -635,8 +587,8 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   int got_Z = 0;
 
   while (1) {
+    /* puts(ts); */
     switch(*ts) {
-      /* puts(ts); */
       case 0:
         if (ctx->enc_type != 0 && ctx->head == NULL) {
           __Pyx_BufFmt_RaiseExpected(ctx);
@@ -647,10 +599,10 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           __Pyx_BufFmt_RaiseExpected(ctx);
           return NULL;
         }
-                return ts;
+        return ts;
       case ' ':
-      case 10:
-      case 13:
+      case '\r':
+      case '\n':
         ++ts;
         break;
       case '<':
@@ -727,23 +679,29 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
         if (*ts != 'f' && *ts != 'd' && *ts != 'g') {
           __Pyx_BufFmt_RaiseUnexpectedChar('Z');
           return NULL;
-        }        /* fall through */
+        }
+        /* fall through */
       case 'c': case 'b': case 'B': case 'h': case 'H': case 'i': case 'I':
       case 'l': case 'L': case 'q': case 'Q':
       case 'f': case 'd': case 'g':
-      case 'O': case 's': case 'p':
+      case 'O': case 'p':
         if (ctx->enc_type == *ts && got_Z == ctx->is_complex &&
             ctx->enc_packmode == ctx->new_packmode) {
           /* Continue pooling same type */
           ctx->enc_count += ctx->new_count;
-        } else {
-          /* New type */
-          if (__Pyx_BufFmt_ProcessTypeChunk(ctx) == -1) return NULL;
-          ctx->enc_count = ctx->new_count;
-          ctx->enc_packmode = ctx->new_packmode;
-          ctx->enc_type = *ts;
-          ctx->is_complex = got_Z;
+          ctx->new_count = 1;
+          got_Z = 0;
+          ++ts;
+          break;
         }
+        /* fall through */
+      case 's':
+        /* 's' or new type (cannot be added to current pool) */
+        if (__Pyx_BufFmt_ProcessTypeChunk(ctx) == -1) return NULL;
+        ctx->enc_count = ctx->new_count;
+        ctx->enc_packmode = ctx->new_packmode;
+        ctx->enc_type = *ts;
+        ctx->is_complex = got_Z;
         ++ts;
         ctx->new_count = 1;
         got_Z = 0;
