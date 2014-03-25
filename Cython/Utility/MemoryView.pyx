@@ -29,6 +29,9 @@ cdef extern from *:
     void Py_INCREF(PyObject *)
     void Py_DECREF(PyObject *)
 
+    void* PyMem_Malloc(size_t n)
+    void PyMem_Free(void *p)
+
     cdef struct __pyx_memoryview "__pyx_memoryview_obj":
         Py_buffer view
         PyObject *obj
@@ -103,7 +106,7 @@ cdef class array:
         Py_ssize_t *_shape
         Py_ssize_t *_strides
         Py_ssize_t itemsize
-        unicode mode
+        unicode mode  # FIXME: this should have been a simple 'char'
         bytes _format
         void (*callback_free_data)(void *data)
         # cdef object _memview
@@ -111,10 +114,10 @@ cdef class array:
         cdef bint dtype_is_object
 
     def __cinit__(array self, tuple shape, Py_ssize_t itemsize, format not None,
-                  mode=u"c", bint allocate_buffer=True):
+                  mode="c", bint allocate_buffer=True):
 
         cdef int idx
-        cdef Py_ssize_t i
+        cdef Py_ssize_t i, dim
         cdef PyObject **p
 
         self.ndim = <int> len(shape)
@@ -123,52 +126,45 @@ cdef class array:
         if not self.ndim:
             raise ValueError("Empty shape tuple for cython.array")
 
-        if self.itemsize <= 0:
+        if itemsize <= 0:
             raise ValueError("itemsize <= 0 for cython.array")
 
-        encode = getattr(format, 'encode', None)
-        if encode:
-            format = encode('ASCII')
-        self._format = format
+        if isinstance(format, unicode):
+            format = (<unicode>format).encode('ASCII')
+        self._format = format  # keep a reference to the byte string
         self.format = self._format
 
-        self._shape = <Py_ssize_t *> malloc(sizeof(Py_ssize_t)*self.ndim)
-        self._strides = <Py_ssize_t *> malloc(sizeof(Py_ssize_t)*self.ndim)
+        # use single malloc() for both shape and strides
+        self._shape = <Py_ssize_t *> PyMem_Malloc(sizeof(Py_ssize_t)*self.ndim*2)
+        self._strides = self._shape + self.ndim
 
-        if not self._shape or not self._strides:
-            free(self._shape)
-            free(self._strides)
-            raise MemoryError("unable to allocate shape or strides.")
+        if not self._shape:
+            raise MemoryError("unable to allocate shape and strides.")
 
         # cdef Py_ssize_t dim, stride
-        idx = 0
         for idx, dim in enumerate(shape):
             if dim <= 0:
                 raise ValueError("Invalid shape in axis %d: %d." % (idx, dim))
-
             self._shape[idx] = dim
-            idx += 1
-
-        if mode not in ("fortran", "c"):
-            raise ValueError("Invalid mode, expected 'c' or 'fortran', got %s" % mode)
 
         cdef char order
         if mode == 'fortran':
-            order = 'F'
+            order = b'F'
+            self.mode = u'fortran'
+        elif mode == 'c':
+            order = b'C'
+            self.mode = u'c'
         else:
-            order = 'C'
+            raise ValueError("Invalid mode, expected 'c' or 'fortran', got %s" % mode)
 
         self.len = fill_contig_strides_array(self._shape, self._strides,
                                              itemsize, self.ndim, order)
 
-        decode = getattr(mode, 'decode', None)
-        if decode:
-            mode = decode('ASCII')
-        self.mode = mode
-
         self.free_data = allocate_buffer
         self.dtype_is_object = format == b'O'
         if allocate_buffer:
+            # use malloc() for backwards compatibility
+            # in case external code wants to change the data pointer
             self.data = <char *>malloc(self.len)
             if not self.data:
                 raise MemoryError("unable to allocate array data.")
@@ -182,9 +178,9 @@ cdef class array:
     @cname('getbuffer')
     def __getbuffer__(self, Py_buffer *info, int flags):
         cdef int bufmode = -1
-        if self.mode == b"c":
+        if self.mode == u"c":
             bufmode = PyBUF_C_CONTIGUOUS | PyBUF_ANY_CONTIGUOUS
-        elif self.mode == b"fortran":
+        elif self.mode == u"fortran":
             bufmode = PyBUF_F_CONTIGUOUS | PyBUF_ANY_CONTIGUOUS
         if not (flags & bufmode):
             raise ValueError("Can only create a buffer that is contiguous in memory.")
@@ -214,9 +210,7 @@ cdef class array:
                 refcount_objects_in_slice(self.data, self._shape,
                                           self._strides, self.ndim, False)
             free(self.data)
-
-        free(self._strides)
-        free(self._shape)
+        PyMem_Free(self._shape)
 
     property memview:
         @cname('get_memview')
@@ -412,29 +406,27 @@ cdef class memoryview(object):
         dst_slice = get_slice_from_memview(dst, &tmp_slice)
 
         if <size_t>self.view.itemsize > sizeof(array):
-            tmp = malloc(self.view.itemsize)
+            tmp = PyMem_Malloc(self.view.itemsize)
             if tmp == NULL:
                 raise MemoryError
             item = tmp
         else:
             item = <void *> array
 
-        if self.dtype_is_object:
-            (<PyObject **> item)[0] = <PyObject *> value
-        else:
-            try:
+        try:
+            if self.dtype_is_object:
+                (<PyObject **> item)[0] = <PyObject *> value
+            else:
                 self.assign_item_from_object(<char *> item, value)
-            except:
-                free(tmp)
-                raise
 
-        # It would be easy to support indirect dimensions, but it's easier
-        # to disallow :)
-        if self.view.suboffsets != NULL:
-            assert_direct_dimensions(self.view.suboffsets, self.view.ndim)
-        slice_assign_scalar(dst_slice, dst.view.ndim, self.view.itemsize,
-                            item, self.dtype_is_object)
-        free(tmp)
+            # It would be easy to support indirect dimensions, but it's easier
+            # to disallow :)
+            if self.view.suboffsets != NULL:
+                assert_direct_dimensions(self.view.suboffsets, self.view.ndim)
+            slice_assign_scalar(dst_slice, dst.view.ndim, self.view.itemsize,
+                                item, self.dtype_is_object)
+        finally:
+            PyMem_Free(tmp)
 
     cdef setitem_indexed(self, index, value):
         cdef char *itemp = self.get_item_pointer(index)
@@ -1282,6 +1274,7 @@ cdef int memoryview_copy_contents({{memviewslice_name}} src,
             refcount_copying(&dst, dtype_is_object, ndim, False)
             memcpy(dst.data, src.data, slice_get_size(&src, ndim))
             refcount_copying(&dst, dtype_is_object, ndim, True)
+            free(tmpdata)
             return 0
 
     if order == 'F' == get_best_order(&dst, ndim):

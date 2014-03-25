@@ -9,12 +9,45 @@ Latest
 Features added
 --------------
 
+Bugs fixed
+----------
+
+* Syntax highlighting in ``cython-mode.el`` for Emacs no longer
+  incorrectly highlights keywords found as part of longer names.
+
+Other changes
+-------------
+
+* Removed support for CPython 2.4, 2.5 and 3.1.
+
+
+0.20.2
+===================
+
+Features added
+--------------
+
 * Some optimisations for set/frozenset instantiation.
 
 * Support for C++ unordered_set and unordered_map.
 
 Bugs fixed
 ----------
+
+* Compiler crash on readonly properties in "binding" mode.
+
+* Auto-encoding with ``c_string_encoding=ascii`` failed in Py3.3.
+
+* Crash when subtyping freelist enabled Cython extension types with
+  Python classes that use ``__slots__``.
+
+* Freelist usage is restricted to CPython to avoid problems with other
+  Python implementations.
+
+* Memory leak in memory views when copying overlapping, contiguous slices.
+
+* Format checking when requesting non-contiguous buffers from
+  ``cython.array`` objects was disabled in Py3.
 
 * C++ destructor calls in extension types could fail to compile in clang.
 

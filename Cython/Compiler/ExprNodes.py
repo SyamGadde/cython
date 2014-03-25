@@ -2818,7 +2818,10 @@ class IndexNode(ExprNode):
                     keyword_args = None)
                 return type_node.analyse(env, base_type = base_type)
             else:
-                return PyrexTypes.CArrayType(base_type, int(self.index.compile_time_value(env)))
+                index = self.index.compile_time_value(env)
+                if index is not None:
+                    return PyrexTypes.CArrayType(base_type, int(index))
+                error(self.pos, "Array size must be a compile time constant")
         return None
 
     def type_dependencies(self, env):
@@ -3304,8 +3307,7 @@ class IndexNode(ExprNode):
         for pos, specific_type, fused_type in zip(positions,
                                                   specific_types,
                                                   fused_types):
-            if not Utils.any([specific_type.same_as(t)
-                                  for t in fused_type.types]):
+            if not any([specific_type.same_as(t) for t in fused_type.types]):
                 return error(pos, "Type not in fused type")
 
             if specific_type is None or specific_type.is_error:
@@ -3714,12 +3716,6 @@ class IndexNode(ExprNode):
         buffer_entry = self.buffer_entry()
         have_gil = not self.in_nogil_context
 
-        if sys.version_info < (3,):
-            def next_(it):
-                return it.next()
-        else:
-            next_ = next
-
         have_slices = False
         it = iter(self.indices)
         for index in self.original_indices:
@@ -3727,13 +3723,13 @@ class IndexNode(ExprNode):
             have_slices = have_slices or is_slice
             if is_slice:
                 if not index.start.is_none:
-                    index.start = next_(it)
+                    index.start = next(it)
                 if not index.stop.is_none:
-                    index.stop = next_(it)
+                    index.stop = next(it)
                 if not index.step.is_none:
-                    index.step = next_(it)
+                    index.step = next(it)
             else:
-                next_(it)
+                next(it)
 
         assert not list(it)
 
@@ -3997,7 +3993,7 @@ class SliceIndexNode(ExprNode):
                     TempitaUtilityCode.load_cached("SliceTupleAndList", "ObjectHandling.c"))
                 cfunc = '__Pyx_PyTuple_GetSlice'
             else:
-                cfunc = '__Pyx_PySequence_GetSlice'
+                cfunc = 'PySequence_GetSlice'
             code.putln(
                 "%s = %s(%s, %s, %s); %s" % (
                     result,
@@ -5587,7 +5583,7 @@ class AttributeNode(ExprNode):
         if self.is_temp and self.type.is_memoryviewslice and self.is_memslice_transpose:
             # mirror condition for putting the memview incref here:
             code.put_xdecref_memoryviewslice(
-                    self.result(), have_gil=True)
+                        self.result(), have_gil=True)
             code.putln("%s.memview = NULL;" % self.result())
             code.putln("%s.data = NULL;" % self.result())
         else:
@@ -6683,7 +6679,6 @@ class SetNode(ExprNode):
             self.compile_time_value_error(e)
 
     def generate_evaluation_code(self, code):
-        code.globalstate.use_utility_code(Builtin.py_set_utility_code)
         self.allocate_temp_result(code)
         code.putln(
             "%s = PySet_New(0); %s" % (
@@ -9202,7 +9197,7 @@ class AddNode(NumBinopNode):
     def infer_builtin_types_operation(self, type1, type2):
         # b'abc' + 'abc' raises an exception in Py3,
         # so we can safely infer the Py2 type for bytes here
-        string_types = [bytes_type, str_type, basestring_type, unicode_type]  # Py2.4 lacks tuple.index()
+        string_types = (bytes_type, str_type, basestring_type, unicode_type)
         if type1 in string_types and type2 in string_types:
             return string_types[max(string_types.index(type1),
                                     string_types.index(type2))]
