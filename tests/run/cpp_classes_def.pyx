@@ -1,5 +1,6 @@
+# mode: run
+# tag: cpp, werror
 # cython: experimental_cpp_class_def=True
-# tag: cpp
 
 cdef double pi
 from math import pi
@@ -42,11 +43,32 @@ def test_Poly(int n, float radius=1):
         del poly
 
 
+cdef cppclass WithStatic:
+    @staticmethod
+    double square(double x):
+        return x * x
+
+def test_Static(x):
+    """
+    >>> test_Static(2)
+    4.0
+    >>> test_Static(0.5)
+    0.25
+    """
+    return WithStatic.square(x)
+
+
 cdef cppclass InitDealloc:
     __init__():
-        print "Init"
+        try:
+            print "Init"
+        finally:
+            return  # swallow any exceptions
     __dealloc__():
-        print "Dealloc"
+        try:
+            print "Dealloc"
+        finally:
+            return  # swallow any exceptions
 
 def test_init_dealloc():
     """

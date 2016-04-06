@@ -159,6 +159,11 @@ static void __Pyx_ReleaseBuffer(Py_buffer *view) {
 static CYTHON_INLINE int  __Pyx_GetBufferAndValidate(Py_buffer* buf, PyObject* obj,
     __Pyx_TypeInfo* dtype, int flags, int nd, int cast, __Pyx_BufFmt_StackElem* stack);
 static CYTHON_INLINE void __Pyx_SafeReleaseBuffer(Py_buffer* info);
+static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const char* ts);
+static void __Pyx_BufFmt_Init(__Pyx_BufFmt_Context* ctx,
+                              __Pyx_BufFmt_StackElem* stack,
+                              __Pyx_TypeInfo* type); // PROTO
+
 
 /////////////// BufferFormatCheck ///////////////
 static CYTHON_INLINE int __Pyx_IsLittleEndian(void) {
@@ -858,16 +863,13 @@ static struct __pyx_typeinfo_string __Pyx_TypeInfoToFormat(__Pyx_TypeInfo *type)
         case 'I':
         case 'U':
             if (size == 1)
-                *buf = 'b';
+                *buf = (type->is_unsigned) ? 'B' : 'b';
             else if (size == 2)
-                *buf = 'h';
+                *buf = (type->is_unsigned) ? 'H' : 'h';
             else if (size == 4)
-                *buf = 'i';
+                *buf = (type->is_unsigned) ? 'I' : 'i';
             else if (size == 8)
-                *buf = 'q';
-
-            if (type->is_unsigned)
-                *buf = toupper(*buf);
+                *buf = (type->is_unsigned) ? 'Q' : 'q';
             break;
         case 'P':
             *buf = 'P';

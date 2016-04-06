@@ -6,7 +6,6 @@ out_fname = pyx_to_dll("foo.pyx")
 import os
 import sys
 
-from distutils.dist import Distribution
 from distutils.errors import DistutilsArgError, DistutilsError, CCompilerError
 from distutils.extension import Extension
 from distutils.util import grok_environment_error
@@ -20,9 +19,9 @@ DEBUG = 0
 
 _reloads={}
 
-def pyx_to_dll(filename, ext = None, force_rebuild = 0,
-               build_in_temp=False, pyxbuild_dir=None, setup_args={},
-               reload_support=False, inplace=False):
+
+def pyx_to_dll(filename, ext=None, force_rebuild=0, build_in_temp=False, pyxbuild_dir=None,
+               setup_args=None, reload_support=False, inplace=False):
     """Compile a PYX file to a DLL and return the name of the generated .so 
        or .dll ."""
     assert os.path.exists(filename), "Could not find %s" % os.path.abspath(filename)
@@ -36,6 +35,8 @@ def pyx_to_dll(filename, ext = None, force_rebuild = 0,
             filename = filename[:-len(extension)] + '.c'
         ext = Extension(name=modname, sources=[filename])
 
+    if setup_args is None:
+        setup_args = {}
     if not pyxbuild_dir:
         pyxbuild_dir = os.path.join(path, "_pyxbld")
 
@@ -67,9 +68,12 @@ def pyx_to_dll(filename, ext = None, force_rebuild = 0,
     if HAS_CYTHON and build_in_temp:
         args.append("--pyrex-c-in-temp")
     sargs = setup_args.copy()
-    sargs.update(
-        {"script_name": None,
-         "script_args": args + script_args} )
+    sargs.update({
+        "script_name": None,
+        "script_args": args + script_args,
+    })
+    # late import, in case setuptools replaced it
+    from distutils.dist import Distribution
     dist = Distribution(sargs)
     if not dist.ext_modules:
         dist.ext_modules = []
@@ -79,15 +83,9 @@ def pyx_to_dll(filename, ext = None, force_rebuild = 0,
     build = dist.get_command_obj('build')
     build.build_base = pyxbuild_dir
 
-    config_files = dist.find_config_files()
-    try: config_files.remove('setup.cfg')
-    except ValueError: pass
-    dist.parse_config_files(config_files)
-
     cfgfiles = dist.find_config_files()
-    try: cfgfiles.remove('setup.cfg')
-    except ValueError: pass
     dist.parse_config_files(cfgfiles)
+
     try:
         ok = dist.parse_command_line()
     except DistutilsArgError:
@@ -155,7 +153,8 @@ def pyx_to_dll(filename, ext = None, force_rebuild = 0,
             sys.stderr.write(error + "\n")
         raise
 
+
 if __name__=="__main__":
     pyx_to_dll("dummy.pyx")
-    import test
+    from . import test
 

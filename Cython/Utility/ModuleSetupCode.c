@@ -2,7 +2,7 @@
 
 #include <stddef.h> /* For offsetof */
 #ifndef offsetof
-#define offsetof(type, member) ( (size_t) & ((type*)0) -> member )
+  #define offsetof(type, member) ( (size_t) & ((type*)0) -> member )
 #endif
 
 #if !defined(WIN32) && !defined(MS_WINDOWS)
@@ -33,20 +33,30 @@
 #endif
 
 #ifdef PYPY_VERSION
-#define CYTHON_COMPILING_IN_PYPY 1
-#define CYTHON_COMPILING_IN_CPYTHON 0
+  #define CYTHON_COMPILING_IN_PYPY 1
+  #define CYTHON_COMPILING_IN_CPYTHON 0
 #else
-#define CYTHON_COMPILING_IN_PYPY 0
-#define CYTHON_COMPILING_IN_CPYTHON 1
+  #define CYTHON_COMPILING_IN_PYPY 0
+  #define CYTHON_COMPILING_IN_CPYTHON 1
 #endif
 
-#if CYTHON_COMPILING_IN_PYPY
-#define Py_OptimizeFlag 0
+#if !defined(CYTHON_USE_PYLONG_INTERNALS) && CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x02070000
+  #define CYTHON_USE_PYLONG_INTERNALS 1
+#endif
+#if CYTHON_USE_PYLONG_INTERNALS
+  #include "longintrepr.h"
+  /* These short defines can easily conflict with other code */
+  #undef SHIFT
+  #undef BASE
+  #undef MASK
+#endif
+
+#if CYTHON_COMPILING_IN_PYPY && PY_VERSION_HEX < 0x02070600 && !defined(Py_OptimizeFlag)
+  #define Py_OptimizeFlag 0
 #endif
 
 #define __PYX_BUILD_PY_SSIZE_T "n"
 #define CYTHON_FORMAT_SSIZE_T "z"
-#define __Pyx_PyIndex_Check PyIndex_Check
 
 #if PY_MAJOR_VERSION < 3
   #define __Pyx_BUILTIN_MODULE_NAME "__builtin__"
@@ -60,16 +70,16 @@
   #define __Pyx_DefaultClassType PyType_Type
 #endif
 
-#if PY_MAJOR_VERSION >= 3
+#ifndef Py_TPFLAGS_CHECKTYPES
   #define Py_TPFLAGS_CHECKTYPES 0
+#endif
+#ifndef Py_TPFLAGS_HAVE_INDEX
   #define Py_TPFLAGS_HAVE_INDEX 0
 #endif
-
-#if PY_MAJOR_VERSION >= 3
+#ifndef Py_TPFLAGS_HAVE_NEWBUFFER
   #define Py_TPFLAGS_HAVE_NEWBUFFER 0
 #endif
-
-#if PY_VERSION_HEX < 0x030400a1 && !defined(Py_TPFLAGS_HAVE_FINALIZE)
+#ifndef Py_TPFLAGS_HAVE_FINALIZE
   #define Py_TPFLAGS_HAVE_FINALIZE 0
 #endif
 
@@ -83,6 +93,7 @@
   #define __Pyx_PyUnicode_KIND(u)         PyUnicode_KIND(u)
   #define __Pyx_PyUnicode_DATA(u)         PyUnicode_DATA(u)
   #define __Pyx_PyUnicode_READ(k, d, i)   PyUnicode_READ(k, d, i)
+  #define __Pyx_PyUnicode_IS_TRUE(u)      (0 != (likely(PyUnicode_IS_READY(u)) ? PyUnicode_GET_LENGTH(u) : PyUnicode_GET_SIZE(u)))
 #else
   #define CYTHON_PEP393_ENABLED 0
   #define __Pyx_PyUnicode_READY(op)       (0)
@@ -92,6 +103,7 @@
   #define __Pyx_PyUnicode_DATA(u)         ((void*)PyUnicode_AS_UNICODE(u))
   /* (void)(k) => avoid unused variable warning due to macro: */
   #define __Pyx_PyUnicode_READ(k, d, i)   ((void)(k), (Py_UCS4)(((Py_UNICODE*)d)[i]))
+  #define __Pyx_PyUnicode_IS_TRUE(u)      (0 != PyUnicode_GET_SIZE(u))
 #endif
 
 #if CYTHON_COMPILING_IN_PYPY
@@ -103,13 +115,31 @@
       PyNumber_Add(a, b) : __Pyx_PyUnicode_Concat(a, b))
 #endif
 
-#define __Pyx_PyString_FormatSafe(a, b)  ((unlikely((a) == Py_None)) ? PyNumber_Remainder(a, b) : __Pyx_PyString_Format(a, b))
+#if CYTHON_COMPILING_IN_PYPY && !defined(PyUnicode_Contains)
+  #define PyUnicode_Contains(u, s)  PySequence_Contains(u, s)
+#endif
+
+#if CYTHON_COMPILING_IN_PYPY && !defined(PyObject_Format)
+  #define PyObject_Format(obj, fmt)  PyObject_CallMethod(obj, "__format__", "O", fmt)
+#endif
+
+#if CYTHON_COMPILING_IN_PYPY && !defined(PyObject_Malloc)
+  #define PyObject_Malloc(s)   PyMem_Malloc(s)
+  #define PyObject_Free(p)     PyMem_Free(p)
+  #define PyObject_Realloc(p)  PyMem_Realloc(p)
+#endif
+
+#define __Pyx_PyString_FormatSafe(a, b)   ((unlikely((a) == Py_None)) ? PyNumber_Remainder(a, b) : __Pyx_PyString_Format(a, b))
 #define __Pyx_PyUnicode_FormatSafe(a, b)  ((unlikely((a) == Py_None)) ? PyNumber_Remainder(a, b) : PyUnicode_Format(a, b))
 
 #if PY_MAJOR_VERSION >= 3
   #define __Pyx_PyString_Format(a, b)  PyUnicode_Format(a, b)
 #else
   #define __Pyx_PyString_Format(a, b)  PyString_Format(a, b)
+#endif
+
+#if PY_MAJOR_VERSION < 3 && !defined(PyObject_ASCII)
+  #define PyObject_ASCII(o)            PyObject_Repr(o)
 #endif
 
 #if PY_MAJOR_VERSION >= 3
@@ -124,8 +154,7 @@
   #define __Pyx_PyBaseString_Check(obj) PyUnicode_Check(obj)
   #define __Pyx_PyBaseString_CheckExact(obj) PyUnicode_CheckExact(obj)
 #else
-  #define __Pyx_PyBaseString_Check(obj) (PyString_CheckExact(obj) || PyUnicode_CheckExact(obj) || \
-                                         PyString_Check(obj) || PyUnicode_Check(obj))
+  #define __Pyx_PyBaseString_Check(obj) (PyString_Check(obj) || PyUnicode_Check(obj))
   #define __Pyx_PyBaseString_CheckExact(obj) (PyString_CheckExact(obj) || PyUnicode_CheckExact(obj))
 #endif
 
@@ -157,6 +186,12 @@
   #define PyBoolObject                 PyLongObject
 #endif
 
+#if PY_MAJOR_VERSION >= 3 && CYTHON_COMPILING_IN_PYPY
+  #ifndef PyUnicode_InternFromString
+    #define PyUnicode_InternFromString(s) PyUnicode_FromString(s)
+  #endif
+#endif
+
 #if PY_VERSION_HEX < 0x030200A4
   typedef long Py_hash_t;
   #define __Pyx_PyInt_FromHash_t PyInt_FromLong
@@ -167,35 +202,28 @@
 #endif
 
 #if PY_MAJOR_VERSION >= 3
-  #define PyMethod_New(func, self, klass) ((self) ? PyMethod_New(func, self) : PyInstanceMethod_New(func))
-#endif
-
-#define __Pyx_GetAttrString(o,n)   PyObject_GetAttrString((o),(n))
-#define __Pyx_SetAttrString(o,n,a) PyObject_SetAttrString((o),(n),(a))
-#define __Pyx_DelAttrString(o,n)   PyObject_DelAttrString((o),(n))
-
-#if PY_VERSION_HEX < 0x02050000
-  #define __Pyx_NAMESTR(n) ((char *)(n))
-  #define __Pyx_DOCSTR(n)  ((char *)(n))
+  #define __Pyx_PyMethod_New(func, self, klass) ((self) ? PyMethod_New(func, self) : PyInstanceMethod_New(func))
 #else
-  #define __Pyx_NAMESTR(n) (n)
-  #define __Pyx_DOCSTR(n)  (n)
+  #define __Pyx_PyMethod_New(func, self, klass) PyMethod_New(func, self, klass)
 #endif
 
-/* inline attribute */
-#ifndef CYTHON_INLINE
-  #if defined(__GNUC__)
-    #define CYTHON_INLINE __inline__
-  #elif defined(_MSC_VER)
-    #define CYTHON_INLINE __inline
-  #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-    #define CYTHON_INLINE inline
-  #else
-    #define CYTHON_INLINE
-  #endif
+// backport of PyAsyncMethods from Py3.5 to older Py3.x versions
+// (mis-)using the "tp_reserved" type slot which is re-activated as "tp_as_async" in Py3.5
+#if PY_VERSION_HEX >= 0x030500B1
+#define __Pyx_PyAsyncMethodsStruct PyAsyncMethods
+#define __Pyx_PyType_AsAsync(obj) (Py_TYPE(obj)->tp_as_async)
+#elif CYTHON_COMPILING_IN_CPYTHON && PY_MAJOR_VERSION >= 3
+typedef struct {
+    unaryfunc am_await;
+    unaryfunc am_aiter;
+    unaryfunc am_anext;
+} __Pyx_PyAsyncMethodsStruct;
+#define __Pyx_PyType_AsAsync(obj) ((__Pyx_PyAsyncMethodsStruct*) (Py_TYPE(obj)->tp_reserved))
+#else
+#define __Pyx_PyType_AsAsync(obj) NULL
 #endif
 
-/* restrict */
+// restrict
 #ifndef CYTHON_RESTRICT
   #if defined(__GNUC__)
     #define CYTHON_RESTRICT __restrict__
@@ -208,26 +236,77 @@
   #endif
 #endif
 
+#define __Pyx_void_to_None(void_result) ((void)(void_result), Py_INCREF(Py_None), Py_None)
+
+
+/////////////// CInitCode ///////////////
+
+// inline attribute
+#ifndef CYTHON_INLINE
+  #if defined(__GNUC__)
+    #define CYTHON_INLINE __inline__
+  #elif defined(_MSC_VER)
+    #define CYTHON_INLINE __inline
+  #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+    #define CYTHON_INLINE inline
+  #else
+    #define CYTHON_INLINE
+  #endif
+#endif
+
+
+/////////////// CppInitCode ///////////////
+
+#ifndef __cplusplus
+  #error "Cython files generated with the C++ option must be compiled with a C++ compiler."
+#endif
+
+// inline attribute
+#ifndef CYTHON_INLINE
+  #define CYTHON_INLINE inline
+#endif
+
+// Work around clang bug http://stackoverflow.com/questions/21847816/c-invoke-nested-template-class-destructor
+template<typename T>
+void __Pyx_call_destructor(T& x) {
+    x.~T();
+}
+
+// Used for temporary variables of "reference" type.
+template<typename T>
+class __Pyx_FakeReference {
+  public:
+    __Pyx_FakeReference() : ptr(NULL) { }
+    // __Pyx_FakeReference(T& ref) : ptr(&ref) { }
+    // Const version needed as Cython doesn't know about const overloads (e.g. for stl containers).
+    __Pyx_FakeReference(const T& ref) : ptr(const_cast<T*>(&ref)) { }
+    T *operator->() { return ptr; }
+    operator T&() { return *ptr; }
+  private:
+    T *ptr;
+};
+
+
+/////////////// MathInitCode ///////////////
+
+#if defined(WIN32) || defined(MS_WINDOWS)
+  #define _USE_MATH_DEFINES
+#endif
+#include <math.h>
+
 #ifdef NAN
 #define __PYX_NAN() ((float) NAN)
 #else
 static CYTHON_INLINE float __PYX_NAN() {
-  /* Initialize NaN. The sign is irrelevant, an exponent with all bits 1 and
-   a nonzero mantissa means NaN. If the first bit in the mantissa is 1, it is
-   a quiet NaN. */
+  // Initialize NaN.  The sign is irrelevant, an exponent with all bits 1 and
+  // a nonzero mantissa means NaN.  If the first bit in the mantissa is 1, it is
+  // a quiet NaN.
   float value;
   memset(&value, 0xFF, sizeof(value));
   return value;
 }
 #endif
 
-// Work around clang bug http://stackoverflow.com/questions/21847816/c-invoke-nested-template-class-destructor
-#ifdef __cplusplus
-template<typename T>
-void __Pyx_call_destructor(T* x) {
-    x->~T();
-}
-#endif
 
 /////////////// UtilityFunctionPredeclarations.proto ///////////////
 
@@ -246,7 +325,15 @@ void __Pyx_call_destructor(T* x) {
 # endif
 #endif
 
-typedef struct {PyObject **p; char *s; const Py_ssize_t n; const char* encoding;
+#ifndef CYTHON_NCP_UNUSED
+# if CYTHON_COMPILING_IN_CPYTHON
+#  define CYTHON_NCP_UNUSED
+# else
+#  define CYTHON_NCP_UNUSED CYTHON_UNUSED
+# endif
+#endif
+
+typedef struct {PyObject **p; const char *s; const Py_ssize_t n; const char* encoding;
                 const char is_unicode; const char is_str; const char intern; } __Pyx_StringTabEntry; /*proto*/
 
 /////////////// ForceInitThreads.proto ///////////////
@@ -264,8 +351,8 @@ PyEval_InitThreads();
 /////////////// CodeObjectCache.proto ///////////////
 
 typedef struct {
-    int code_line;
     PyCodeObject* code_object;
+    int code_line;
 } __Pyx_CodeObjectCacheEntry;
 
 struct __Pyx_CodeObjectCache {
@@ -290,7 +377,7 @@ static int __pyx_bisect_code_objects(__Pyx_CodeObjectCacheEntry* entries, int co
         return count;
     }
     while (start < end) {
-        mid = (start + end) / 2;
+        mid = start + (end - start) / 2;
         if (code_line < entries[mid].code_line) {
             end = mid;
         } else if (code_line > entries[mid].code_line) {
@@ -349,7 +436,7 @@ static void __pyx_insert_code_object(int code_line, PyCodeObject* code_object) {
     if (__pyx_code_cache.count == __pyx_code_cache.max_count) {
         int new_max = __pyx_code_cache.max_count + 64;
         entries = (__Pyx_CodeObjectCacheEntry*)PyMem_Realloc(
-            __pyx_code_cache.entries, new_max*sizeof(__Pyx_CodeObjectCacheEntry));
+            __pyx_code_cache.entries, (size_t)new_max*sizeof(__Pyx_CodeObjectCacheEntry));
         if (unlikely(!entries)) {
             return;
         }
@@ -510,7 +597,7 @@ static int __Pyx_RegisterCleanup(void) {
     // and cached objects that we are about to clean up.
 
     static PyMethodDef cleanup_def = {
-        __Pyx_NAMESTR("__cleanup"), (PyCFunction)${cleanup_cname}_atexit, METH_NOARGS, 0};
+        "__cleanup", (PyCFunction)${cleanup_cname}_atexit, METH_NOARGS, 0};
 
     PyObject *cleanup_func = 0;
     PyObject *atexit = 0;
@@ -526,7 +613,7 @@ static int __Pyx_RegisterCleanup(void) {
     atexit = __Pyx_ImportModule("atexit");
     if (!atexit)
         goto bad;
-    reg = __Pyx_GetAttrString(atexit, "_exithandlers");
+    reg = PyObject_GetAttrString(atexit, "_exithandlers");
     if (reg && PyList_Check(reg)) {
         PyObject *a, *kw;
         a = PyTuple_New(0);
@@ -546,7 +633,7 @@ static int __Pyx_RegisterCleanup(void) {
         if (!reg)
             PyErr_Clear();
         Py_XDECREF(reg);
-        reg = __Pyx_GetAttrString(atexit, "register");
+        reg = PyObject_GetAttrString(atexit, "register");
         if (!reg)
             goto bad;
         args = PyTuple_Pack(1, cleanup_func);

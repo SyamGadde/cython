@@ -40,13 +40,24 @@ class TestInline(CythonTest):
     def test_globals(self):
         self.assertEquals(inline("return global_value + 1", **self.test_kwds), global_value + 1)
 
-    def test_pure(self):    
+    def test_no_return(self):
+        self.assertEquals(inline("""
+            a = 1
+            cdef double b = 2
+            cdef c = []
+        """, **self.test_kwds), dict(a=1, b=2.0, c=[]))
+
+    def test_def_node(self):
+        foo = inline("def foo(x): return x * x", **self.test_kwds)['foo']
+        self.assertEquals(foo(7), 49)
+
+    def test_pure(self):
         import cython as cy
         b = inline("""
         b = cy.declare(float, a)
         c = cy.declare(cy.pointer(cy.float), &b)
         return b
-        """, a=3)
+        """, a=3, **self.test_kwds)
         self.assertEquals(type(b), float)
 
     if has_numpy:

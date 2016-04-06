@@ -1,5 +1,5 @@
 cdef extern from "<vector>" namespace "std" nogil:
-    cdef cppclass vector[T]:
+    cdef cppclass vector[T,ALLOCATOR=*]:
         cppclass iterator:
             T& operator*()
             iterator operator++()
@@ -24,10 +24,10 @@ cdef extern from "<vector>" namespace "std" nogil:
             bint operator>(reverse_iterator)
             bint operator<=(reverse_iterator)
             bint operator>=(reverse_iterator)
-        #cppclass const_iterator(iterator):
-        #    pass
-        #cppclass const_reverse_iterator(reverse_iterator):
-        #    pass
+        cppclass const_iterator(iterator):
+            pass
+        cppclass const_reverse_iterator(reverse_iterator):
+            pass
         vector() except +
         vector(vector&) except +
         vector(size_t) except +
@@ -41,36 +41,36 @@ cdef extern from "<vector>" namespace "std" nogil:
         bint operator>(vector&, vector&)
         bint operator<=(vector&, vector&)
         bint operator>=(vector&, vector&)
-        void assign(size_t, T&)
-        void assign[input_iterator](input_iterator, input_iterator)
-        T& at(size_t)
+        void assign(size_t, const T&)
+        void assign[input_iterator](input_iterator, input_iterator) except +
+        T& at(size_t) except +
         T& back()
         iterator begin()
-        #const_iterator begin()
+        const_iterator const_begin "begin"()
         size_t capacity()
         void clear()
         bint empty()
         iterator end()
-        #const_iterator end()
+        const_iterator const_end "end"()
         iterator erase(iterator)
         iterator erase(iterator, iterator)
         T& front()
-        iterator insert(iterator, T&)
-        void insert(iterator, size_t, T&)
-        void insert(iterator, iterator, iterator)
+        iterator insert(iterator, const T&) except +
+        void insert(iterator, size_t, const T&) except +
+        void insert[Iter](iterator, Iter, Iter) except +
         size_t max_size()
         void pop_back()
-        void push_back(T&)
+        void push_back(T&) except +
         reverse_iterator rbegin()
-        #const_reverse_iterator rbegin()
+        const_reverse_iterator const_rbegin "rbegin"()
         reverse_iterator rend()
-        #const_reverse_iterator rend()
+        const_reverse_iterator const_rend "rend"()
         void reserve(size_t)
-        void resize(size_t)
-        void resize(size_t, T&)
+        void resize(size_t) except +
+        void resize(size_t, T&) except +
         size_t size()
         void swap(vector&)
-        
-        #C++0x methods
+
+        # C++11 methods
         T* data()
         void shrink_to_fit()

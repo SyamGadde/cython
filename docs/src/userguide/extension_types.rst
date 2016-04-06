@@ -132,7 +132,7 @@ you can use a cast to write::
 This may be dangerous if :meth:`quest()` is not actually a :class:`Shrubbery`, as it 
 will try to access width as a C struct member which may not exist. At the C level, 
 rather than raising an :class:`AttributeError`, either an nonsensical result will be 
-returned (interpreting whatever data is at at that address as an int) or a segfault 
+returned (interpreting whatever data is at that address as an int) or a segfault
 may result from trying to access invalid memory. Instead, one can write::
 
     print (<Shrubbery?>quest()).width
@@ -345,7 +345,7 @@ functions, C methods are declared using :keyword:`cdef` or :keyword:`cpdef` inst
 :keyword:`def`. C methods are "virtual", and may be overridden in derived
 extension types. In addition, :keyword:`cpdef` methods can even be overridden by python
 methods when called as C method. This adds a little to their calling overhead
-compared to a :keyword:`cdef` methd::
+compared to a :keyword:`cdef` method::
 
     # pets.pyx
     cdef class Parrot:
@@ -382,21 +382,30 @@ method using the usual Python technique, i.e.::
 
     Parrot.describe(self)
 
+`cdef` methods can be declared static by using the @staticmethod decorator.
+This can be especially useful for constructing classes that take non-Python
+compatible types.::
+
+    cdef class OwnedPointer:
+        cdef void* ptr
+
+        cdef __dealloc__(self):
+            if ptr != NULL:
+                free(ptr)
+
+        @staticmethod
+        cdef create(void* ptr):
+            p = OwnedPointer()
+            p.ptr = ptr
+            return ptr
+
 
 Forward-declaring extension types
 ===================================
 
 Extension types can be forward-declared, like :keyword:`struct` and
-:keyword:`union` types. This will be necessary if you have two extension types
-that need to refer to each other, e.g.::
-
-    cdef class Shrubbery # forward declaration
-
-    cdef class Shrubber:
-        cdef Shrubbery work_in_progress
-
-    cdef class Shrubbery:
-        cdef Shrubber creator
+:keyword:`union` types.  This is usually not necessary and violates the
+DRY principle (Don't Repeat Yourself).
 
 If you are forward-declaring an extension type that has a base class, you must
 specify the base class in both the forward declaration and its subsequent
@@ -640,7 +649,7 @@ When you declare::
 
 the name Spam serves both these roles. There may be other names by which you
 can refer to the constructor, but only Spam can be used as a type name. For
-example, if you were to explicity import MyModule, you could use
+example, if you were to explicitly import MyModule, you could use
 ``MyModule.Spam()`` to create a Spam instance, but you wouldn't be able to use
 :class:`MyModule.Spam` as a type name.
 

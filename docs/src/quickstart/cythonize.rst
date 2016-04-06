@@ -62,7 +62,7 @@ With additional type declarations, this might look like::
 
 Since the iterator variable ``i`` is typed with C semantics, the for-loop will be compiled
 to pure C code.  Typing ``a``, ``s`` and ``dx`` is important as they are involved
-in arithmetic withing the for-loop; typing ``b`` and ``N`` makes less of a
+in arithmetic within the for-loop; typing ``b`` and ``N`` makes less of a
 difference, but in this case it is not much extra work to be
 consistent and type the entire function.
 
@@ -124,8 +124,15 @@ tell you why your code is taking time.
 Using the ``-a`` switch to the ``cython`` command line program (or
 following a link from the Sage notebook) results in an HTML report
 of Cython code interleaved with the generated C code.  Lines are
-colored according to the level of "typedness" -- white lines
-translates to pure C without any Python API calls. This report
-is invaluable when optimizing a function for speed.
+colored according to the level of "typedness" --
+white lines translate to pure C,
+while lines that require the Python C-API are yellow
+(darker as they translate to more C-API interaction).
+Lines that translate to C code have a plus (``+``) in front
+and can be clicked to show the generated code.
+
+This report is invaluable when optimizing a function for speed,
+and for determining when to :ref:`release the GIL <nogil>`:
+in general, a ``nogil`` block may contain only "white" code.
 
 .. figure:: htmlreport.png

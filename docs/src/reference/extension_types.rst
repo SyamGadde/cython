@@ -36,7 +36,7 @@ Attributes
 * Are fixed at compile time.
 
  * You can't add attributes to an extension type instance at run time like in normal Python.
- * You can sub-class the extenstion type in Python to add attributes at run-time.
+ * You can sub-class the extension type in Python to add attributes at run-time.
 
 * There are two ways to access extension type attributes:
 
@@ -102,7 +102,7 @@ Properties
 
 * The ``__get__()``, ``__set__()``, and ``__del__()`` methods are all optional.
 
- * If they are ommitted, An exception is raised when an access attempt is made.
+ * If they are omitted, an exception is raised on attribute access.
 
 * Below, is a full example that defines a property which can..
 
@@ -182,10 +182,13 @@ Docstrings
 
  * This a Python library limitation because the ``PyTypeObject`` data structure is limited
 
+
 Initialization: ``__cinit__()`` and ``__init__()``
 ==================================================
 
-* Any arguments passed to the extension type's constructor, will be passed to both initialization methods.
+* Any arguments passed to the extension type's constructor
+  will be passed to both initialization methods.
+
 * ``__cinit__()`` is where you should perform C-level initialization of the object
 
  * This includes any allocation of C data structures.
@@ -209,9 +212,11 @@ Initialization: ``__cinit__()`` and ``__init__()``
   * It may be wise to give the ``__cinit__()`` method both ``"*"`` and ``"**"`` arguments.
 
    * Allows the method to accept or ignore additional arguments.
-   * Eliminates the need for a Python level sub-class, that changes the ``__init__()`` method's signature, to have to override both the ``__new__()`` and ``__init__()`` methods.
+   * Eliminates the need for a Python level sub-class, that changes the ``__init__()``
+     method's signature, to have to override both the ``__new__()`` and ``__init__()`` methods.
 
-  * If ``__cinit__()`` is declared to take no arguments except ``self``, it will ignore any extra arguments passed to the constructor without complaining about a signature mis-match
+  * If ``__cinit__()`` is declared to take no arguments except ``self``, it will ignore any
+    extra arguments passed to the constructor without complaining about a signature mis-match.
 
 
 * ``__init__()`` is for higher-level initialization and is safer for Python access.
@@ -221,6 +226,14 @@ Initialization: ``__cinit__()`` and ``__init__()``
  * This method may sometimes be called more than once, or possibly not at all.
 
   * Take this into consideration to make sure the design of your other methods are robust of this fact.
+
+Note that all constructor arguments will be passed as Python objects.
+This implies that non-convertible C types such as pointers or C++ objects
+cannot be passed into the constructor from Cython code.  If this is needed,
+use a factory function instead that handles the object initialisation.
+It often helps to directly call ``__new__()`` in this function to bypass the
+call to the ``__init__()`` constructor.
+
 
 Finalization: ``__dealloc__()``
 ===============================
@@ -301,11 +314,11 @@ Subclassing
  * If the base type is a built-in type, it must have been previously declared as an ``extern`` extension type.
  * ``cimport`` can be used to import the base type, if the extern declared base type is in a ``.pxd`` definition file.
 
- * In Cython, multiple inheritance is not permitted.. singlular inheritance only
+ * In Cython, multiple inheritance is not permitted.. singular inheritance only
 
-* Cython extenstion types can also be sub-classed in Python.
+* Cython extension types can also be sub-classed in Python.
 
- * Here multiple inhertance is permissible as is normal for Python.
+ * Here multiple inheritance is permissible as is normal for Python.
  * Even multiple extension types may be inherited, but C-layout of all the base classes must be compatible.
 
 
@@ -351,7 +364,7 @@ Extension Types and None
 
 * When accessing an extension type's C-attributes, **make sure** it is not ``None``.
 
- * Cython does not check this for reasons of efficency.
+ * Cython does not check this for reasons of efficiency.
 
 * Be very aware of exposing Python functions that take extension types as arguments::
 
@@ -405,7 +418,7 @@ External and Public Types
 Public
 ======
 
-* When an extention type is declared ``public``, Cython will generate a C-header (".h") file.
+* When an extension type is declared ``public``, Cython will generate a C-header (".h") file.
 * The header file will contain the declarations for it's **object-struct** and it's **type-object**.
 * External C-code can now access the attributes of the extension type.
 
@@ -435,7 +448,7 @@ External
         print "Imag:", c.cval.imag
 
 .. note:: Some important things in the example:
-    #. ``ctypedef`` has been used because because Python's header file has the struct decalared with::
+    #. ``ctypedef`` has been used because Python's header file has the struct declared with::
 
         ctypedef struct {
         ...
@@ -446,7 +459,7 @@ External
     #. When declaring an external extension type...
 
      * Don't declare any methods, because they are Python method class the are not needed.
-     * Similiar to **structs** and **unions**, extension classes declared inside a ``cdef extern from`` block only need to declare the C members which you will actually need to access in your module.
+     * Similar to **structs** and **unions**, extension classes declared inside a ``cdef extern from`` block only need to declare the C members which you will actually need to access in your module.
 
 
 Name Specification Clause

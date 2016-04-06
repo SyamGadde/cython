@@ -1,19 +1,21 @@
+from __future__ import absolute_import
+
 import itertools
 from time import time
 
-import Errors
-import DebugFlags
-import Options
-from Visitor import CythonTransform
-from Errors import CompileError, InternalError, AbortError
-import Naming
+from . import Errors
+from . import DebugFlags
+from . import Options
+from .Visitor import CythonTransform
+from .Errors import CompileError, InternalError, AbortError
+from . import Naming
 
 #
 # Really small pipeline stages
 #
 def dumptree(t):
     # For quick debugging in pipelines
-    print t.dump()
+    print(t.dump())
     return t
 
 def abort_on_errors(node):
@@ -28,8 +30,7 @@ def parse_stage_factory(context):
         full_module_name = compsrc.full_module_name
         initial_pos = (source_desc, 1, 0)
         saved_cimport_from_pyx, Options.cimport_from_pyx = Options.cimport_from_pyx, False
-        scope = context.find_module(full_module_name, pos = initial_pos, need_pxd = 0,
-                                    check_module_name = not Options.embed)
+        scope = context.find_module(full_module_name, pos = initial_pos, need_pxd = 0)
         Options.cimport_from_pyx = saved_cimport_from_pyx
         tree = context.parse(source_desc, scope, pxd = 0, full_module_name = full_module_name)
         tree.compilation_source = compsrc
@@ -54,20 +55,20 @@ def generate_pyx_code_stage_factory(options, result):
         return result
     return generate_pyx_code_stage
 
+
 def inject_pxd_code_stage_factory(context):
     def inject_pxd_code_stage(module_node):
-        from textwrap import dedent
-        stats = module_node.body.stats
-        for name, (statlistnode, scope) in context.pxds.iteritems():
+        for name, (statlistnode, scope) in context.pxds.items():
             module_node.merge_in(statlistnode, scope)
         return module_node
     return inject_pxd_code_stage
+
 
 def use_utility_code_definitions(scope, target, seen=None):
     if seen is None:
         seen = set()
 
-    for entry in scope.entries.itervalues():
+    for entry in scope.entries.values():
         if entry in seen:
             continue
 
@@ -79,24 +80,59 @@ def use_utility_code_definitions(scope, target, seen=None):
         elif entry.as_module:
             use_utility_code_definitions(entry.as_module, target, seen)
 
+
+def sort_utility_codes(utilcodes):
+    ranks = {}
+    def get_rank(utilcode):
+        if utilcode not in ranks:
+            ranks[utilcode] = 0  # prevent infinite recursion on circular dependencies
+            original_order = len(ranks)
+            ranks[utilcode] = 1 + min([get_rank(dep) for dep in utilcode.requires or ()] or [-1]) + original_order * 1e-8
+        return ranks[utilcode]
+    for utilcode in utilcodes:
+        get_rank(utilcode)
+    return [utilcode for utilcode, _ in sorted(ranks.items(), key=lambda kv: kv[1])]
+
+
+def normalize_deps(utilcodes):
+    deps = {}
+    for utilcode in utilcodes:
+        deps[utilcode] = utilcode
+
+    def unify_dep(dep):
+        if dep in deps:
+            return deps[dep]
+        else:
+            deps[dep] = dep
+            return dep
+
+    for utilcode in utilcodes:
+        utilcode.requires = [unify_dep(dep) for dep in utilcode.requires or ()]
+
+
 def inject_utility_code_stage_factory(context):
     def inject_utility_code_stage(module_node):
+        module_node.prepare_utility_code()
         use_utility_code_definitions(context.cython_scope, module_node.scope)
+        module_node.scope.utility_code_list = sort_utility_codes(module_node.scope.utility_code_list)
+        normalize_deps(module_node.scope.utility_code_list)
         added = []
         # Note: the list might be extended inside the loop (if some utility code
         # pulls in other utility code, explicitly or implicitly)
         for utilcode in module_node.scope.utility_code_list:
-            if utilcode in added: continue
+            if utilcode in added:
+                continue
             added.append(utilcode)
             if utilcode.requires:
                 for dep in utilcode.requires:
-                    if not dep in added and not dep in module_node.scope.utility_code_list:
+                    if dep not in added and dep not in module_node.scope.utility_code_list:
                         module_node.scope.utility_code_list.append(dep)
-            tree = utilcode.get_tree()
+            tree = utilcode.get_tree(cython_scope=context.cython_scope)
             if tree:
                 module_node.merge_in(tree.body, tree.scope, merge_scope=True)
         return module_node
     return inject_utility_code_stage
+
 
 class UseUtilityCodeDefinitions(CythonTransform):
     # Temporary hack to use any utility code in nodes' "utility_code_definitions".
@@ -121,34 +157,35 @@ class UseUtilityCodeDefinitions(CythonTransform):
         self.process_entry(node.type_entry)
         return node
 
+
 #
 # Pipeline factories
 #
 
 def create_pipeline(context, mode, exclude_classes=()):
     assert mode in ('pyx', 'py', 'pxd')
-    from Visitor import PrintTree
-    from ParseTreeTransforms import WithTransform, NormalizeTree, PostParse, PxdPostParse
-    from ParseTreeTransforms import ForwardDeclareTypes, AnalyseDeclarationsTransform
-    from ParseTreeTransforms import AnalyseExpressionsTransform, FindInvalidUseOfFusedTypes
-    from ParseTreeTransforms import CreateClosureClasses, MarkClosureVisitor, DecoratorTransform
-    from ParseTreeTransforms import InterpretCompilerDirectives, TransformBuiltinMethods
-    from ParseTreeTransforms import ExpandInplaceOperators, ParallelRangeTransform
-    from ParseTreeTransforms import CalculateQualifiedNamesTransform
-    from TypeInference import MarkParallelAssignments, MarkOverflowingArithmetic
-    from ParseTreeTransforms import AdjustDefByDirectives, AlignFunctionDefinitions
-    from ParseTreeTransforms import RemoveUnreachableCode, GilCheck
-    from FlowControl import ControlFlowAnalysis
-    from AnalysedTreeTransforms import AutoTestDictTransform
-    from AutoDocTransforms import EmbedSignature
-    from Optimize import FlattenInListTransform, SwitchTransform, IterationTransform
-    from Optimize import EarlyReplaceBuiltinCalls, OptimizeBuiltinCalls
-    from Optimize import InlineDefNodeCalls
-    from Optimize import ConstantFolding, FinalOptimizePhase
-    from Optimize import DropRefcountingTransform
-    from Optimize import ConsolidateOverflowCheck
-    from Buffer import IntroduceBufferAuxiliaryVars
-    from ModuleNode import check_c_declarations, check_c_declarations_pxd
+    from .Visitor import PrintTree
+    from .ParseTreeTransforms import WithTransform, NormalizeTree, PostParse, PxdPostParse
+    from .ParseTreeTransforms import ForwardDeclareTypes, AnalyseDeclarationsTransform
+    from .ParseTreeTransforms import AnalyseExpressionsTransform, FindInvalidUseOfFusedTypes
+    from .ParseTreeTransforms import CreateClosureClasses, MarkClosureVisitor, DecoratorTransform
+    from .ParseTreeTransforms import InterpretCompilerDirectives, TransformBuiltinMethods
+    from .ParseTreeTransforms import ExpandInplaceOperators, ParallelRangeTransform
+    from .ParseTreeTransforms import CalculateQualifiedNamesTransform
+    from .TypeInference import MarkParallelAssignments, MarkOverflowingArithmetic
+    from .ParseTreeTransforms import AdjustDefByDirectives, AlignFunctionDefinitions
+    from .ParseTreeTransforms import RemoveUnreachableCode, GilCheck
+    from .FlowControl import ControlFlowAnalysis
+    from .AnalysedTreeTransforms import AutoTestDictTransform
+    from .AutoDocTransforms import EmbedSignature
+    from .Optimize import FlattenInListTransform, SwitchTransform, IterationTransform
+    from .Optimize import EarlyReplaceBuiltinCalls, OptimizeBuiltinCalls
+    from .Optimize import InlineDefNodeCalls
+    from .Optimize import ConstantFolding, FinalOptimizePhase
+    from .Optimize import DropRefcountingTransform
+    from .Optimize import ConsolidateOverflowCheck
+    from .Buffer import IntroduceBufferAuxiliaryVars
+    from .ModuleNode import check_c_declarations, check_c_declarations_pxd
 
 
     if mode == 'pxd':
@@ -173,19 +210,19 @@ def create_pipeline(context, mode, exclude_classes=()):
         InterpretCompilerDirectives(context, context.compiler_directives),
         ParallelRangeTransform(context),
         AdjustDefByDirectives(context),
+        WithTransform(context),
         MarkClosureVisitor(context),
         _align_function_definitions,
         RemoveUnreachableCode(context),
         ConstantFolding(),
         FlattenInListTransform(),
-        WithTransform(context),
         DecoratorTransform(context),
         ForwardDeclareTypes(context),
         AnalyseDeclarationsTransform(context),
         AutoTestDictTransform(context),
         EmbedSignature(context),
         EarlyReplaceBuiltinCalls(context),  ## Necessary?
-        TransformBuiltinMethods(context),  ## Necessary?
+        TransformBuiltinMethods(context),
         MarkParallelAssignments(context),
         ControlFlowAnalysis(context),
         RemoveUnreachableCode(context),
@@ -197,12 +234,12 @@ def create_pipeline(context, mode, exclude_classes=()):
         AnalyseExpressionsTransform(context),
         FindInvalidUseOfFusedTypes(context),
         ExpandInplaceOperators(context),
+        IterationTransform(context),
+        SwitchTransform(context),
         OptimizeBuiltinCalls(context),  ## Necessary?
         CreateClosureClasses(context),  ## After all lookups and type inference
         CalculateQualifiedNamesTransform(context),
         ConsolidateOverflowCheck(context),
-        IterationTransform(context),
-        SwitchTransform(),
         DropRefcountingTransform(),
         FinalOptimizePhase(context),
         GilCheck(),
@@ -221,12 +258,12 @@ def create_pyx_pipeline(context, options, result, py=False, exclude_classes=()):
         mode = 'pyx'
     test_support = []
     if options.evaluate_tree_assertions:
-        from Cython.TestUtils import TreeAssertVisitor
+        from ..TestUtils import TreeAssertVisitor
         test_support.append(TreeAssertVisitor())
 
     if options.gdb_debug:
-        from Cython.Debugger import DebugWriter # requires Py2.5+
-        from ParseTreeTransforms import DebugTransform
+        from ..Debugger import DebugWriter # requires Py2.5+
+        from .ParseTreeTransforms import DebugTransform
         context.gdb_debug_outputwriter = DebugWriter.CythonDebugWriter(
             options.output_dir)
         debug_transform = [DebugTransform(context, options, result)]
@@ -244,7 +281,7 @@ def create_pyx_pipeline(context, options, result, py=False, exclude_classes=()):
         [generate_pyx_code_stage_factory(options, result)]))
 
 def create_pxd_pipeline(context, scope, module_name):
-    from CodeGeneration import ExtractPxdCode
+    from .CodeGeneration import ExtractPxdCode
 
     # The pxd pipeline ends up with a CCodeWriter containing the
     # code of the pxd, as well as a pxd scope.
@@ -258,10 +295,10 @@ def create_py_pipeline(context, options, result):
     return create_pyx_pipeline(context, options, result, py=True)
 
 def create_pyx_as_pxd_pipeline(context, result):
-    from ParseTreeTransforms import AlignFunctionDefinitions, \
+    from .ParseTreeTransforms import AlignFunctionDefinitions, \
         MarkClosureVisitor, WithTransform, AnalyseDeclarationsTransform
-    from Optimize import ConstantFolding, FlattenInListTransform
-    from Nodes import StatListNode
+    from .Optimize import ConstantFolding, FlattenInListTransform
+    from .Nodes import StatListNode
     pipeline = []
     pyx_pipeline = create_pyx_pipeline(context, context.options, result,
                                        exclude_classes=[
@@ -312,7 +349,7 @@ def insert_into_pipeline(pipeline, transform, before=None, after=None):
 #
 
 def run_pipeline(pipeline, source, printtree=True):
-    from Cython.Compiler.Visitor import PrintTree
+    from .Visitor import PrintTree
 
     error = None
     data = source
@@ -322,21 +359,21 @@ def run_pipeline(pipeline, source, printtree=True):
                 if phase is not None:
                     if DebugFlags.debug_verbose_pipeline:
                         t = time()
-                        print "Entering pipeline phase %r" % phase
+                        print("Entering pipeline phase %r" % phase)
                     if not printtree and isinstance(phase, PrintTree):
                         continue
                     data = phase(data)
                     if DebugFlags.debug_verbose_pipeline:
-                        print "    %.3f seconds" % (time() - t)
-        except CompileError, err:
+                        print("    %.3f seconds" % (time() - t))
+        except CompileError as err:
             # err is set
             Errors.report_error(err)
             error = err
-    except InternalError, err:
+    except InternalError as err:
         # Only raise if there was not an earlier error
         if Errors.num_errors == 0:
             raise
         error = err
-    except AbortError, err:
+    except AbortError as err:
         error = err
     return (error, data)

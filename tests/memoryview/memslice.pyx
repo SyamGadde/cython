@@ -14,7 +14,6 @@ from cython.parallel cimport prange, parallel
 
 import gc
 import sys
-import re
 
 if sys.version_info[0] < 3:
     import __builtin__ as builtins
@@ -26,9 +25,6 @@ __test__ = {}
 
 def testcase(func):
     doctest = func.__doc__
-    if sys.version_info >= (3,1,1):
-        doctest = doctest.replace('does not have the buffer interface',
-                                  'does not support the buffer interface')
     if sys.version_info >= (3, 0):
         _u = str
     else:
@@ -162,22 +158,22 @@ def acquire_failure3():
 @testcase
 def acquire_nonbuffer1(first, second=None):
     """
-    >>> acquire_nonbuffer1(3)
+    >>> acquire_nonbuffer1(3)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: 'int' does not have the buffer interface
-    >>> acquire_nonbuffer1(type)
+    TypeError:... 'int'...
+    >>> acquire_nonbuffer1(type)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: 'type' does not have the buffer interface
-    >>> acquire_nonbuffer1(None, 2)
+    TypeError:... 'type'...
+    >>> acquire_nonbuffer1(None, 2)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: 'int' does not have the buffer interface
-    >>> acquire_nonbuffer1(4, object())
+    TypeError:... 'int'...
+    >>> acquire_nonbuffer1(4, object())  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: 'int' does not have the buffer interface
+    TypeError:... 'int'...
     """
     cdef int[:] buf
     buf = first
@@ -275,8 +271,6 @@ def cascaded_buffer_assignment(obj):
     >>> A = IntMockBuffer("A", range(6))
     >>> cascaded_buffer_assignment(A)
     acquired A
-    acquired A
-    released A
     released A
     """
     cdef int[:] a, b
@@ -430,6 +424,166 @@ def set_int_2d(int[:, :] buf, int i, int j, int value):
 
     """
     buf[i, j] = value
+
+
+def _read_int2d(int[:, :] buf, int i, int j):
+    return buf[i, j]
+
+
+@testcase
+def schar_index_vars(int[:, :] buf, signed char i, signed char j, int value):
+    """
+    >>> C = IntMockBuffer("C", range(300*300), (300, 300))  # > sizeof(char)
+    >>> schar_index_vars(C, 1, 1, 5)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    301
+    >>> _read_int2d(C, 1, 1)  # validate with int indices
+    acquired C
+    released C
+    5
+
+    >>> schar_index_vars(C, -1, 1, 6)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    89701
+    >>> _read_int2d(C, -1, 1)  # validate with int indices
+    acquired C
+    released C
+    6
+
+    >>> schar_index_vars(C, -1, -2, 7)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    89998
+    >>> _read_int2d(C, -1, -2)  # validate with int indices
+    acquired C
+    released C
+    7
+
+    >>> schar_index_vars(C, -2, -3, 8)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    89697
+    >>> _read_int2d(C, -2, -3)  # validate with int indices
+    acquired C
+    released C
+    8
+
+    >>> C = IntMockBuffer("C", range(6), (2, 3))
+    >>> schar_index_vars(C, 5, 1, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 0)
+    >>> schar_index_vars(C, 1, 5, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 1)
+    >>> schar_index_vars(C, -2, 1, 10)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    1
+    >>> schar_index_vars(C, -3, 1, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 0)
+    >>> schar_index_vars(C, 1, -3, 10)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    3
+    >>> schar_index_vars(C, 1, -4, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 1)
+    """
+    print("reading")
+    old_value = buf[i, j]
+    print("writing")
+    buf[i, j] = value
+    if buf[i, j] == value:
+        print("validated")
+    return old_value
+
+
+@testcase
+def uchar_index_vars(int[:, :] buf, unsigned char i, unsigned char j, int value):
+    """
+    >>> C = IntMockBuffer("C", range(300*300), (300, 300))  # > sizeof(char)
+    >>> uchar_index_vars(C, 1, 1, 5)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    301
+    >>> _read_int2d(C, 1, 1)  # validate with int indices
+    acquired C
+    released C
+    5
+
+    >>> C = IntMockBuffer("C", range(6), (2, 3))
+    >>> uchar_index_vars(C, 5, 1, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 0)
+    >>> uchar_index_vars(C, 1, 5, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 1)
+    """
+    print("reading")
+    old_value = buf[i, j]
+    print("writing")
+    buf[i, j] = value
+    if buf[i, j] == value:
+        print("validated")
+    return old_value
+
+
+@testcase
+def char_index_vars(int[:, :] buf, char i, char j, int value):
+    """
+    >>> C = IntMockBuffer("C", range(300*300), (300, 300))  # > sizeof(char)
+    >>> char_index_vars(C, 1, 1, 5)
+    acquired C
+    reading
+    writing
+    validated
+    released C
+    301
+    >>> _read_int2d(C, 1, 1)  # validate with int indices
+    acquired C
+    released C
+    5
+
+    >>> C = IntMockBuffer("C", range(6), (2, 3))
+    >>> char_index_vars(C, 5, 1, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 0)
+    >>> char_index_vars(C, 1, 5, 10)
+    Traceback (most recent call last):
+    IndexError: Out of bounds on buffer access (axis 1)
+    """
+    print("reading")
+    old_value = buf[i, j]
+    print("writing")
+    buf[i, j] = value
+    if buf[i, j] == value:
+        print("validated")
+    return old_value
+
 
 @testcase
 def list_comprehension(int[:] buf, len):
@@ -1324,7 +1478,7 @@ cdef class TestIndexSlicingDirectIndirectDims(object):
 
     cdef Py_ssize_t[3] shape, strides, suboffsets
 
-    cdef int c_array[5]
+    cdef int[5] c_array
     cdef int *myarray[5][5]
     cdef bytes format
 
@@ -1649,8 +1803,8 @@ def test_memslice_struct_with_arrays():
     abc
     abc
     """
-    cdef ArrayStruct a1[10]
-    cdef PackedArrayStruct a2[10]
+    cdef ArrayStruct[10] a1
+    cdef PackedArrayStruct[10] a2
 
     test_structs_with_arr(a1)
     test_structs_with_arr(a2)
@@ -1667,8 +1821,8 @@ cdef test_structs_with_arr(FusedStruct array[10]):
         for j in range(3):
             myslice1[i].chars[j] = 97 + j
 
-    if sys.version_info[:2] >= (2, 7) and sys.version_info[:2] < (3, 3):
-        size1 = sizeof(FusedStruct)
+    if (2, 7) <= sys.version_info[:2] < (3, 3):
+        size1 = <Py_ssize_t>sizeof(FusedStruct)
         size2 = len(builtins.memoryview(myslice1)[0])
         assert size1 == size2, (size1, size2, builtins.memoryview(myslice1).format)
 
@@ -1762,14 +1916,14 @@ def test_padded_structs():
     """
     >>> test_padded_structs()
     """
-    cdef ArrayStruct a1[10]
-    cdef PackedArrayStruct a2[10]
-    cdef AlignedNested a3[10]
-    cdef AlignedNestedNormal a4[10]
-    cdef A a5[10]
-    cdef B a6[10]
-    cdef C a7[10]
-    cdef D a8[10]
+    cdef ArrayStruct[10] a1
+    cdef PackedArrayStruct[10] a2
+    cdef AlignedNested[10] a3
+    cdef AlignedNestedNormal[10] a4
+    cdef A[10] a5
+    cdef B[10] a6
+    cdef C[10] a7
+    cdef D[10] a8
 
     _test_padded(a1)
     _test_padded(a2)
@@ -1796,7 +1950,7 @@ def test_object_indices():
     1
     2
     """
-    cdef int array[3]
+    cdef int[3] array
     cdef int[:] myslice = array
     cdef int j
 
@@ -1837,7 +1991,7 @@ def test_slice_assignment():
     """
     >>> test_slice_assignment()
     """
-    cdef int carray[10][100]
+    cdef int[10][100] carray
     cdef int i, j
 
     for i in range(10):
@@ -1866,8 +2020,8 @@ def test_slice_assignment_broadcast_leading():
     """
     >>> test_slice_assignment_broadcast_leading()
     """
-    cdef int array1[1][10]
-    cdef int array2[10]
+    cdef int[1][10] array1
+    cdef int[10] array2
     cdef int i
 
     for i in range(10):
@@ -1898,8 +2052,8 @@ def test_slice_assignment_broadcast_strides():
     """
     >>> test_slice_assignment_broadcast_strides()
     """
-    cdef int src_array[10]
-    cdef int dst_array[10][5]
+    cdef int[10] src_array
+    cdef int[10][5] dst_array
     cdef int i, j
 
     for i in range(10):
@@ -1941,9 +2095,9 @@ def test_borrowed_slice():
     5
     5
     """
-    cdef int i, carray[10]
-    for i in range(10):
-        carray[i] = i
+    cdef int i
+    cdef int[10] carray
+    carray[:] = range(10)
     _borrowed(carray)
     _not_borrowed(carray)
     _not_borrowed2(carray)
@@ -1991,8 +2145,8 @@ def test_object_dtype_copying():
     7
     8
     9
-    3 5
     2 5
+    1 5
     """
     cdef int i
 
@@ -2048,7 +2202,7 @@ def test_scalar_slice_assignment():
     cdef int[10] a
     cdef int[:] m = a
 
-    cdef int a2[5][10]
+    cdef int[5][10] a2
     cdef int[:, ::1] m2 = a2
 
     _test_scalar_slice_assignment(m, m2)
@@ -2104,7 +2258,7 @@ def test_contig_scalar_to_slice_assignment():
     14 14 14 14
     20 20 20 20
     """
-    cdef int a[5][10]
+    cdef int[5][10] a
     cdef int[:, ::1] m = a
 
     m[...] = 14

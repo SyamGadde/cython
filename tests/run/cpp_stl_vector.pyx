@@ -1,4 +1,5 @@
-# tag: cpp
+# mode: run
+# tag: cpp, werror
 
 from cython.operator cimport dereference as d
 from cython.operator cimport preincrement as incr
@@ -125,3 +126,13 @@ def nogil_test(L):
         return v.size()
     finally:
         del v
+
+def item_ptr_test(L, int i, int x):
+    """
+    >>> item_ptr_test(range(10), 7, 100)
+    [0, 1, 2, 3, 4, 5, 6, 100, 8, 9]
+    """
+    cdef vector[int] v = L
+    cdef int* vi_ptr = &v[i]
+    vi_ptr[0] = x
+    return v

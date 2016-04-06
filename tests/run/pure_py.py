@@ -5,6 +5,7 @@ is_compiled = cython.compiled
 NULL = 5
 _NULL = NULL
 
+
 def test_sizeof():
     """
     >>> test_sizeof()
@@ -23,6 +24,7 @@ def test_sizeof():
         print(cython.sizeof(cython.char) < cython.sizeof(cython.longlong))
     else:
         print(cython.sizeof(cython.char) == 1)
+
 
 def test_declare(n):
     """
@@ -43,6 +45,7 @@ def test_declare(n):
     ptr = cython.declare(cython.p_int, cython.address(y))
     return y, ptr[0]
 
+
 @cython.locals(x=cython.double, n=cython.int)
 def test_cast(x):
     """
@@ -52,6 +55,7 @@ def test_cast(x):
     n = cython.cast(cython.int, x)
     return n
 
+
 @cython.locals(x=cython.int, y=cython.p_int)
 def test_address(x):
     """
@@ -60,6 +64,30 @@ def test_address(x):
     """
     y = cython.address(x)
     return y[0]
+
+
+@cython.wraparound(False)
+def test_wraparound(x):
+    """
+    >>> test_wraparound([1, 2, 3])
+    [1, 2, 1]
+    """
+    with cython.wraparound(True):
+        x[-1] = x[0]
+    return x
+
+
+@cython.boundscheck(False)
+def test_boundscheck(x):
+    """
+    >>> test_boundscheck([1, 2, 3])
+    3
+    >>> try: test_boundscheck([1, 2])
+    ... except IndexError: pass
+    """
+    with cython.boundscheck(True):
+        return x[2]
+
 
 ## CURRENTLY BROKEN - FIXME!!
 ## Is this test make sense? Implicit conversion in pure Python??
@@ -73,6 +101,7 @@ def test_address(x):
 ##     """
 ##     y = x
 ##     return y
+
 
 def test_with_nogil(nogil):
     """
@@ -173,6 +202,7 @@ def test_declare_c_types(n):
     #z02 = cython.declare(cython.doublecomplex, n+1j)
     #z03 = cython.declare(cython.longdoublecomplex, n+1j)
 
+
 @cython.ccall
 @cython.returns(cython.double)
 def c_call(x):
@@ -193,6 +223,46 @@ def c_call(x):
     """
     return x
 
+
 def call_ccall(x):
     ret = c_call(x)
     return ret, cython.typeof(ret)
+
+
+@cython.cfunc
+@cython.inline
+@cython.returns(cython.double)
+def cdef_inline(x):
+    """
+    >>> result, return_type = call_cdef_inline(1)
+    >>> (not is_compiled and 'float') or type(return_type).__name__
+    'float'
+    >>> (not is_compiled and 'double') or return_type
+    'double'
+    >>> (is_compiled and 'int') or return_type
+    'int'
+    >>> result == 2.0  or  result
+    True
+    """
+    return x + 1
+
+
+def call_cdef_inline(x):
+    ret = cdef_inline(x)
+    return ret, cython.typeof(ret)
+
+
+@cython.locals(counts=cython.int[10], digit=cython.int)
+def count_digits_in_carray(digits):
+    """
+    >>> digits = '37692837651902834128342341'
+    >>> ''.join(sorted(digits))
+    '01112222333334445667788899'
+    >>> count_digits_in_carray(map(int, digits))
+    [1, 3, 4, 5, 3, 1, 2, 2, 3, 2]
+    """
+    counts = [0] * 10
+    for digit in digits:
+        assert 0 <= digit <= 9
+        counts[digit] += 1
+    return counts

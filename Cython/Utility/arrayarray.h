@@ -27,7 +27,7 @@ typedef struct arraydescr {
     int itemsize;
     PyObject * (*getitem)(struct arrayobject *, Py_ssize_t);
     int (*setitem)(struct arrayobject *, Py_ssize_t, PyObject *);
-#if PY_VERSION_HEX >= 0x03000000
+#if PY_MAJOR_VERSION >= 3
     char *formats;
 #endif    
 } arraydescr;
@@ -55,7 +55,7 @@ struct arrayobject {
     Py_ssize_t allocated;
     struct arraydescr *ob_descr;
     PyObject *weakreflist; /* List of weak references */
-#if PY_VERSION_HEX >= 0x03000000
+#if PY_MAJOR_VERSION >= 3
         int ob_exports;  /* Number of exported buffers */
 #endif
 };
@@ -118,17 +118,18 @@ static CYTHON_INLINE int resize(arrayobject *self, Py_ssize_t n) {
 }
 
 // suitable for small increments; over allocation 50% ;
-// Remains non-smart in Python 2.3- ; but exists for compatibility
 static CYTHON_INLINE int resize_smart(arrayobject *self, Py_ssize_t n) {
     void *items = (void*) self->data.ob_item;
     Py_ssize_t newsize;
-    if (n < self->allocated) {
-        if (n*4 > self->allocated) {
-            self->ob_size = n;
-            return 0;
-        }
+    if (n < self->ob_size) {
+        self->ob_size = n;
+        return 0;
     }
-    newsize = n  * 3 / 2 + 1;
+    newsize = n + (n / 2) + 1;
+    if (newsize <= self->allocated) {   /* overflow */
+        PyErr_NoMemory();
+        return -1;
+    }
     PyMem_Resize(items, char, (size_t)(newsize * self->ob_descr->itemsize));
     if (items == NULL) {
         PyErr_NoMemory();

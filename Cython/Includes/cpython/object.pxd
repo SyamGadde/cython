@@ -1,7 +1,68 @@
-from cpython.ref cimport PyObject, PyTypeObject
 from libc.stdio cimport FILE
+cimport cpython.type
 
 cdef extern from "Python.h":
+
+    ctypedef struct PyObject  # forward declaration
+
+    ctypedef object (*newfunc)(cpython.type.type, object, object)  # (type, args, kwargs)
+
+    ctypedef object (*unaryfunc)(object)
+    ctypedef object (*binaryfunc)(object, object)
+    ctypedef object (*ternaryfunc)(object, object, object)
+    ctypedef int (*inquiry)(object)
+    ctypedef Py_ssize_t (*lenfunc)(object)
+    ctypedef object (*ssizeargfunc)(object, Py_ssize_t)
+    ctypedef object (*ssizessizeargfunc)(object, Py_ssize_t, Py_ssize_t)
+    ctypedef int (*ssizeobjargproc)(object, Py_ssize_t, object)
+    ctypedef int (*ssizessizeobjargproc)(object, Py_ssize_t, Py_ssize_t, object)
+    ctypedef int (*objobjargproc)(object, object, object)
+    ctypedef int (*objobjproc)(object, object)
+
+    ctypedef Py_hash_t (*hashfunc)(object)
+    ctypedef object (*reprfunc)(object)
+
+    ctypedef int (*cmpfunc)(object, object)
+    ctypedef object (*richcmpfunc)(object, object, int)
+
+    # The following functions use 'PyObject*' as first argument instead of 'object' to prevent
+    # accidental reference counting when calling them during a garbage collection run.
+    ctypedef void (*destructor)(PyObject*)
+    ctypedef int (*visitproc)(PyObject*, void *)
+    ctypedef int (*traverseproc)(PyObject*, visitproc, void*)
+
+    ctypedef struct PyTypeObject:
+        const char* tp_name
+        const char* tp_doc
+        Py_ssize_t tp_basicsize
+        Py_ssize_t tp_itemsize
+        Py_ssize_t tp_dictoffset
+        unsigned long tp_flags
+
+        newfunc tp_new
+        destructor tp_dealloc
+        traverseproc tp_traverse
+        inquiry tp_clear
+
+        ternaryfunc tp_call
+        hashfunc tp_hash
+        reprfunc tp_str
+        reprfunc tp_repr
+
+        cmpfunc tp_compare
+        richcmpfunc tp_richcompare
+
+        PyTypeObject* tp_base
+
+    ctypedef struct PyObject:
+        Py_ssize_t ob_refcnt
+        PyTypeObject *ob_type
+
+    cdef PyTypeObject *Py_TYPE(object)
+
+    void* PyObject_Malloc(size_t)
+    void* PyObject_Realloc(void *, size_t)
+    void PyObject_Free(void *)
 
     #####################################################################
     # 6.1 Object Protocol
@@ -290,3 +351,36 @@ cdef extern from "Python.h":
     # Takes an arbitrary object and returns the result of calling
     # obj.__format__(format_spec).
     # Added in Py2.6
+
+    # Type flags (tp_flags of PyTypeObject)
+    long Py_TPFLAGS_HAVE_GETCHARBUFFER
+    long Py_TPFLAGS_HAVE_SEQUENCE_IN
+    long Py_TPFLAGS_HAVE_INPLACEOPS
+    long Py_TPFLAGS_CHECKTYPES
+    long Py_TPFLAGS_HAVE_RICHCOMPARE
+    long Py_TPFLAGS_HAVE_WEAKREFS
+    long Py_TPFLAGS_HAVE_ITER
+    long Py_TPFLAGS_HAVE_CLASS
+    long Py_TPFLAGS_HEAPTYPE
+    long Py_TPFLAGS_BASETYPE
+    long Py_TPFLAGS_READY
+    long Py_TPFLAGS_READYING
+    long Py_TPFLAGS_HAVE_GC
+    long Py_TPFLAGS_HAVE_STACKLESS_EXTENSION
+    long Py_TPFLAGS_HAVE_INDEX
+    long Py_TPFLAGS_HAVE_VERSION_TAG
+    long Py_TPFLAGS_VALID_VERSION_TAG
+    long Py_TPFLAGS_IS_ABSTRACT
+    long Py_TPFLAGS_HAVE_NEWBUFFER
+    long Py_TPFLAGS_INT_SUBCLASS
+    long Py_TPFLAGS_LONG_SUBCLASS
+    long Py_TPFLAGS_LIST_SUBCLASS
+    long Py_TPFLAGS_TUPLE_SUBCLASS
+    long Py_TPFLAGS_STRING_SUBCLASS
+    long Py_TPFLAGS_UNICODE_SUBCLASS
+    long Py_TPFLAGS_DICT_SUBCLASS
+    long Py_TPFLAGS_BASE_EXC_SUBCLASS
+    long Py_TPFLAGS_TYPE_SUBCLASS
+    long Py_TPFLAGS_DEFAULT_EXTERNAL
+    long Py_TPFLAGS_DEFAULT_CORE
+    long Py_TPFLAGS_DEFAULT

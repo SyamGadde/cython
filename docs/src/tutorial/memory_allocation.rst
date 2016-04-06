@@ -22,7 +22,7 @@ management in C.
 Simple C values and structs (such as a local variable ``cdef double x``) are
 usually allocated on the stack and passed by value, but for larger and more
 complicated objects (e.g. a dynamically-sized list of doubles), the memory must
-be manually requested and released.  C provides the functions :c:func`malloc`,
+be manually requested and released.  C provides the functions :c:func:`malloc`,
 :c:func:`realloc`, and :c:func:`free` for this purpose, which can be imported
 in cython from ``clibc.stdlib``. Their signatures are:
 
@@ -85,15 +85,15 @@ e.g.::
 
       cdef double* data
 
-      def __cinit__(self, number):
-          # allocate some memory (filled with random data)
+      def __cinit__(self, size_t number):
+          # allocate some memory (uninitialised, may contain arbitrary data)
           self.data = <double*> PyMem_Malloc(number * sizeof(double))
           if not self.data:
               raise MemoryError()
 
-      def resize(self, new_number):
+      def resize(self, size_t new_number):
           # Allocates new_number * sizeof(double) bytes,
-          # preserving the contents and making a best-effort to
+          # preserving the current content and making a best-effort to
           # re-use the original data location.
           mem = <double*> PyMem_Realloc(self.data, new_number * sizeof(double))
           if not mem:
@@ -102,5 +102,5 @@ e.g.::
           # On error (mem is NULL), the originally memory has not been freed.
           self.data = mem
 
-      def __dealloc__(self, number):
+      def __dealloc__(self):
           PyMem_Free(self.data)     # no-op if self.data is NULL

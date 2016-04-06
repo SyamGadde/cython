@@ -19,8 +19,10 @@ Contents:
    limitations
    pyrex_differences
    memoryviews
+   buffer
    parallelism
    debugging
+   numpy_tutorial
 
 Indices and tables
 ------------------

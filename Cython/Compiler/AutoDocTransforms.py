@@ -1,7 +1,9 @@
-from Cython.Compiler.Visitor import CythonTransform
-from Cython.Compiler.StringEncoding import EncodedString
-from Cython.Compiler import Options
-from Cython.Compiler import PyrexTypes, ExprNodes
+from __future__ import absolute_import
+
+from .Visitor import CythonTransform
+from .StringEncoding import EncodedString
+from . import Options
+from . import PyrexTypes, ExprNodes
 
 class EmbedSignature(CythonTransform):
 
@@ -49,6 +51,8 @@ class EmbedSignature(CythonTransform):
         default_val = arg.default
         if not default_val:
             return None
+        if isinstance(default_val, ExprNodes.NullNode):
+            return 'NULL'
         try:
             denv = self.denv  # XXX
             ctval = default_val.compile_time_value(self.denv)
@@ -66,7 +70,7 @@ class EmbedSignature(CythonTransform):
         except Exception:
             try:
                 return self._fmt_expr_node(default_val)
-            except AttributeError, e:
+            except AttributeError:
                 return '<???>'
 
     def _fmt_arg(self, arg):
@@ -148,6 +152,10 @@ class EmbedSignature(CythonTransform):
         self.class_node = oldclass
         return node
 
+    def visit_LambdaNode(self, node):
+        # lambda expressions so not have signature or inner functions
+        return node
+
     def visit_DefNode(self, node):
         if not self.current_directives['embedsignature']:
             return node
@@ -182,7 +190,7 @@ class EmbedSignature(CythonTransform):
                 old_doc = node.py_func.entry.doc
             else:
                 old_doc = None
-            new_doc  = self._embed_signature(signature, old_doc)
+            new_doc = self._embed_signature(signature, old_doc)
             doc_holder.doc = EncodedString(new_doc)
             if not is_constructor and getattr(node, 'py_func', None) is not None:
                 node.py_func.entry.doc = EncodedString(new_doc)

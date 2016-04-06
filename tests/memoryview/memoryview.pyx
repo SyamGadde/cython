@@ -958,7 +958,7 @@ def test_contig_scalar_to_slice_assignment():
     14 14 14 14
     20 20 20 20
     """
-    cdef int a[5][10]
+    cdef int[5][10] a
     cdef int[:, ::1] _m = a
     m = _m
 
@@ -978,3 +978,64 @@ def test_dtype_object_scalar_assignment():
 
     (<object> m)[:] = SingleObject(3)
     assert m[0] == m[4] == m[-1] == 3
+
+
+def test_assignment_in_conditional_expression(bint left):
+    """
+    >>> test_assignment_in_conditional_expression(True)
+    1.0
+    2.0
+    1.0
+    2.0
+    >>> test_assignment_in_conditional_expression(False)
+    3.0
+    4.0
+    3.0
+    4.0
+    """
+    cdef double a[2]
+    cdef double b[2]
+    a[:] = [1, 2]
+    b[:] = [3, 4]
+
+    cdef double[:] A = a
+    cdef double[:] B = b
+    cdef double[:] C, c
+
+    # assign new memoryview references
+    C = A if left else B
+
+    for i in range(C.shape[0]):
+        print C[i]
+
+    # create new memoryviews
+    c = a if left else b
+    for i in range(c.shape[0]):
+        print c[i]
+
+
+def test_cpython_offbyone_issue_23349():
+    """
+    >>> print(test_cpython_offbyone_issue_23349())
+    testing
+    """
+    cdef unsigned char[:] v = bytearray(b"testing")
+    # the following returns 'estingt' without the workaround
+    return bytearray(v).decode('ascii')
+
+
+@cython.test_fail_if_path_exists('//SimpleCallNode')
+@cython.test_assert_path_exists(
+    '//ReturnStatNode//TupleNode',
+    '//ReturnStatNode//TupleNode//CondExprNode',
+)
+def min_max_tree_restructuring():
+    """
+    >>> min_max_tree_restructuring()
+    (1, 3)
+    """
+    cdef char a[5]
+    a = [1, 2, 3, 4, 5]
+    cdef char[:] aview = a
+
+    return max(<char>1, aview[0]), min(<char>5, aview[2])

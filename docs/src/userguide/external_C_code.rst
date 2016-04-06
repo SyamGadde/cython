@@ -124,6 +124,35 @@ A few more tricks and tips:
     cdef extern from *:
         ...
 
+Implementing functions in C
+---------------------------
+
+When you want to call C code from a Cython module, usually that code
+will be in some external library that you link your extension against.
+However, you can also directly compile C (or C++) code as part of your
+Cython module. In the ``.pyx`` file, you can put something like::
+
+    cdef extern from "spam.c":
+        void order_spam(int tons)
+
+Cython will assume that the function ``order_spam()`` is defined in the
+file ``spam.c``. If you also want to cimport this function from another
+module, it must be declared (not extern!) in the ``.pxd`` file::
+
+    cdef void order_spam(int tons)
+
+For this to work, the signature of ``order_spam()`` in ``spam.c`` must
+match the signature that Cython uses, in particular the function must
+be static:
+
+.. code-block:: c
+
+    static void order_spam(int tons)
+    {
+        printf("Ordered %i tons of spam!\n", tons);
+    }
+
+
 .. _struct-union-enum-styles:
 
 Styles of struct, union and enum declaration
@@ -213,52 +242,83 @@ Cython, with the same syntax as used by C compilers on Windows, for example,::
 If ``__stdcall`` is used, the function is only considered compatible with
 other ``__stdcall`` functions of the same signature.
 
+
+.. _resolve-conflicts:
+
 Resolving naming conflicts - C name specifications
-----------------------------------------------------
+--------------------------------------------------
 
 Each Cython module has a single module-level namespace for both Python and C
-names. This can be inconvenient if you want to wrap some external C functions
+names.  This can be inconvenient if you want to wrap some external C functions
 and provide the Python user with Python functions of the same names.
 
-Cython provides a couple of different ways of solving this problem. The
-best way, especially if you have many C functions to wrap, is probably to put
-the extern C function declarations into a different namespace using the
-facilities described in the section on sharing declarations between Cython
-modules.
+Cython provides a couple of different ways of solving this problem.  The best
+way, especially if you have many C functions to wrap, is to put the extern
+C function declarations into a ``.pxd`` file and thus a different namespace,
+using the facilities described in :ref:`sharing declarations between Cython
+modules <sharing-declarations>`.  Writing them into a ``.pxd`` file allows
+their reuse across modules, avoids naming collisions in the normal Python way
+and even makes it easy to rename them on cimport.  For example, if your
+``decl.pxd`` file declared a C function ``eject_tomato``::
 
-The other way is to use a C name specification to give different Cython and C
-names to the C function. Suppose, for example, that you want to wrap an
-external function called :func:`eject_tomato`. If you declare it as::
+    cdef extern from "myheader.h":
+        void eject_tomato(float speed)
 
-    cdef extern void c_eject_tomato "eject_tomato" (float speed)
+then you can cimport and wrap it in a ``.pyx`` file as follows::
 
-then its name inside the Cython module will be ``c_eject_tomato``, whereas its name
-in C will be ``eject_tomato``. You can then wrap it with::
+    from decl cimport eject_tomato as c_eject_tomato
 
     def eject_tomato(speed):
         c_eject_tomato(speed)
 
-so that users of your module can refer to it as ``eject_tomato``.
+or simply cimport the ``.pxd`` file and use it as prefix::
 
-Another use for this feature is referring to external names that happen to be
-Cython keywords. For example, if you want to call an external function called
-print, you can rename it to something else in your Cython module.
+    cimport decl
 
-As well as functions, C names can be specified for variables, structs, unions,
-enums, struct and union members, and enum values. For example,::
+    def eject_tomato(speed):
+        decl.eject_tomato(speed)
 
-    cdef extern int one "ein", two "zwei"
+Note that this has no runtime lookup overhead, as it would in Python.
+Cython resolves the names in the ``.pxd`` file at compile time.
+
+For special cases where namespacing or renaming on import is not enough,
+e.g. when a name in C conflicts with a Python keyword, you can use a C name
+specification to give different Cython and C names to the C function at
+declaration time.  Suppose, for example, that you want to wrap an external
+C function called :func:`yield`.  If you declare it as::
+
+    cdef extern from "myheader.h":
+        void c_yield "yield" (float speed)
+
+then its Cython visible name will be ``c_yield``, whereas its name in C
+will be ``yield``.  You can then wrap it with::
+
+    def call_yield(speed):
+        c_yield(speed)
+
+As for functions, C names can be specified for variables, structs, unions,
+enums, struct and union members, and enum values.  For example::
+
+    cdef extern int one "eins", two "zwei"
     cdef extern float three "drei"
 
     cdef struct spam "SPAM":
-      int i "eye"
+        int i "eye"
 
     cdef enum surprise "inquisition":
-      first "alpha"
-      second "beta" = 3
+        first "alpha"
+        second "beta" = 3
+
+Note that Cython will not do any validation or name mangling on the string
+you provide.  It will inject the bare text into the C code unmodified, so you
+are entirely on your own with this feature.  If you want to declare a name
+``xyz`` and have Cython inject the text "make the C compiler fail here" into
+the C file for it, you can do this using a C name declaration.  Consider this
+an advanced feature, only for the rare cases where everything else fails.
+
 
 Using Cython Declarations from C
-==================================
+================================
 
 Cython provides two methods for making C declarations from a Cython module
 available for use by external C code---public declarations and C API
@@ -324,6 +384,14 @@ called :func:`import_modulename`.
 C code wanting to use these functions or extension types needs to include the
 header and call the :func:`import_modulename` function. The other functions
 can then be called and the extension types used as usual.
+
+If the C code wanting to use these functions is part of more than one shared 
+library or executable, then :func:`import_modulename` function needs to be 
+called in each of the shared libraries which use these functions. If you
+crash with a segmentation fault (SIGSEGV on linux) when calling into one of
+these api calls, this is likely an indication that the shared library which
+contains the api call which is generating the segmentation fault does not call
+the :func:`import_modulename` function before the api call which crashes.
 
 Any public C type or extension type declarations in the Cython module are also
 made available when you include :file:`modulename_api.h`.::
@@ -403,8 +471,18 @@ Acquiring and Releasing the GIL
 
 Cython provides facilities for acquiring and releasing the
 `Global Interpreter Lock (GIL) <http://docs.python.org/dev/glossary.html#term-global-interpreter-lock>`_.
-This may be useful when calling into (external C) code that may block, or when wanting to use Python from a
-C callback.
+This may be useful when calling from multi-threaded code into
+(external C) code that may block, or when wanting to use Python
+from a (native) C thread callback.  Releasing the GIL should
+obviously only be done for thread-safe code or for code that
+uses other means of protection against race conditions and
+concurrency issues.
+
+Note that acquiring the GIL is a blocking thread-synchronising
+operation, and therefore potentially costly.  It might not be
+worth releasing the GIL for minor calculations.  Usually, I/O
+operations and substantial computations in parallel code will
+benefit from it.
 
 .. _nogil:
 
@@ -428,7 +506,7 @@ Acquiring the GIL
 
 A C function that is to be used as a callback from C code that is executed
 without the GIL needs to acquire the GIL before it can manipulate Python
-objects. This can be done by specifying with :keyword:`gil` in the function
+objects. This can be done by specifying ``with gil`` in the function
 header::
 
     cdef void my_callback(void *data) with gil:
@@ -453,16 +531,18 @@ declare that it is safe to call without the GIL.::
     cdef void my_gil_free_func(int spam) nogil:
         ...
 
-If you are implementing such a function in Cython, it cannot have any Python
-arguments, Python local variables, or Python return type, and cannot
-manipulate Python objects in any way or call any function that does so without
-acquiring the GIL first. Some of these restrictions are currently checked by
-Cython, but not all. It is possible that more stringent checking will be
-performed in the future.
+When you implement such a function in Cython, it cannot have any Python
+arguments or Python object return type.  Furthermore, any operation
+that involves Python objects (including calling Python functions) must
+explicitly acquire the GIL first, e.g. by using a ``with gil`` block
+or by calling a function that has been defined ``with gil``.  These
+restrictions are checked by Cython and you will get a compile error
+if it finds any Python interaction inside of a ``nogil`` code section.
 
-.. NOTE:: This declaration declares that it is safe to call the function without the GIL,
-          it does not in itself release the GIL.
+.. NOTE:: The ``nogil`` function annotation declares that it is safe
+          to call the function without the GIL.  It is perfectly allowed
+          to execute it while holding the GIL.  The function does not in
+          itself release the GIL if it is held by the caller.
 
-Declaring a function with :keyword:`gil` also implicitly makes its signature
-:keyword:`nogil`.
-
+Declaring a function ``with gil`` (i.e. as acquiring the GIL on entry) also
+implicitly makes its signature :keyword:`nogil`.

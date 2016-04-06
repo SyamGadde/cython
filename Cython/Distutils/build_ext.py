@@ -9,15 +9,16 @@ __revision__ = "$Id:$"
 
 import sys
 import os
-import re
-from distutils.core import Command
 from distutils.errors import DistutilsPlatformError
-from distutils.sysconfig import customize_compiler, get_python_version
 from distutils.dep_util import newer, newer_group
 from distutils import log
-from distutils.dir_util import mkpath
 from distutils.command import build_ext as _build_ext
 from distutils import sysconfig
+
+try:
+    from __builtin__ import basestring
+except ImportError:
+    basestring = str
 
 extension_name_re = _build_ext.extension_name_re
 
@@ -85,7 +86,7 @@ class build_ext(_build_ext.build_ext):
          "generate debug information for cygdb"),
         ('cython-compile-time-env', None,
             "cython compile time environment"),
-            
+
         # For backwards compatibility.
         ('pyrex-cplus', None,
          "generate C++ source files"),
@@ -108,7 +109,7 @@ class build_ext(_build_ext.build_ext):
     boolean_options.extend([
         'cython-cplus', 'cython-create-listing', 'cython-line-directives',
         'cython-c-in-temp', 'cython-gdb',
-        
+
         # For backwards compatibility.
         'pyrex-cplus', 'pyrex-create-listing', 'pyrex-line-directives',
         'pyrex-c-in-temp', 'pyrex-gdb',
@@ -126,7 +127,7 @@ class build_ext(_build_ext.build_ext):
         self.cython_gdb = False
         self.no_c_in_traceback = 0
         self.cython_compile_time_env = None
-    
+
     def __getattr__(self, name):
         if name[:6] == 'pyrex_':
             return getattr(self, 'cython_' + name[6:])
@@ -235,6 +236,10 @@ class build_ext(_build_ext.build_ext):
                     includes.append(i)
         except AttributeError:
             pass
+
+        # In case extension.include_dirs is a generator, evaluate it and keep
+        # result
+        extension.include_dirs = list(extension.include_dirs)
         for i in extension.include_dirs:
             if not i in includes:
                 includes.append(i)

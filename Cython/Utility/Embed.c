@@ -95,7 +95,7 @@ __Pyx_char2wchar(char* arg)
     /* Overallocate; as multi-byte characters are in the argument, the
        actual output could use less memory. */
     argsize = strlen(arg) + 1;
-    res = malloc(argsize*sizeof(wchar_t));
+    res = (wchar_t *)malloc(argsize*sizeof(wchar_t));
     if (!res) goto oom;
     in = (unsigned char*)arg;
     out = res;
@@ -111,6 +111,7 @@ __Pyx_char2wchar(char* arg)
                unless there is a bug in the C library, or I
                misunderstood how mbrtowc works. */
             fprintf(stderr, "unexpected mbrtowc result -2\\n");
+            free(res);
             return NULL;
         }
         if (converted == (size_t)-1) {
@@ -138,7 +139,7 @@ __Pyx_char2wchar(char* arg)
     /* Cannot use C locale for escaping; manually escape as if charset
        is ASCII (i.e. escape all bytes > 128. This will still roundtrip
        correctly in the locale's charset, which must be an ASCII superset. */
-    res = malloc((strlen(arg)+1)*sizeof(wchar_t));
+    res = (wchar_t *)malloc((strlen(arg)+1)*sizeof(wchar_t));
     if (!res) goto oom;
     in = (unsigned char*)arg;
     out = res;
@@ -162,25 +163,28 @@ int
         return __Pyx_main(0, NULL);
     }
     else {
-        wchar_t **argv_copy = (wchar_t **)malloc(sizeof(wchar_t*)*argc);
-        /* We need a second copies, as Python might modify the first one. */
-        wchar_t **argv_copy2 = (wchar_t **)malloc(sizeof(wchar_t*)*argc);
         int i, res;
-        char *oldloc;
-        if (!argv_copy || !argv_copy2) {
+        wchar_t **argv_copy = (wchar_t **)malloc(sizeof(wchar_t*)*argc);
+        /* We need a second copy, as Python might modify the first one. */
+        wchar_t **argv_copy2 = (wchar_t **)malloc(sizeof(wchar_t*)*argc);
+        char *oldloc = strdup(setlocale(LC_ALL, NULL));
+        if (!argv_copy || !argv_copy2 || !oldloc) {
             fprintf(stderr, "out of memory\\n");
+            free(argv_copy);
+            free(argv_copy2);
+            free(oldloc);
             return 1;
         }
-        oldloc = strdup(setlocale(LC_ALL, NULL));
+        res = 0;
         setlocale(LC_ALL, "");
         for (i = 0; i < argc; i++) {
             argv_copy2[i] = argv_copy[i] = __Pyx_char2wchar(argv[i]);
-            if (!argv_copy[i])
-                return 1;
+            if (!argv_copy[i]) res = 1;  /* failure, but continue to simplify cleanup */
         }
         setlocale(LC_ALL, oldloc);
         free(oldloc);
-        res = __Pyx_main(argc, argv_copy);
+        if (res == 0)
+            res = __Pyx_main(argc, argv_copy);
         for (i = 0; i < argc; i++) {
             free(argv_copy2[i]);
         }

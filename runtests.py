@@ -23,20 +23,16 @@ except (ImportError, AttributeError):
     IS_CPYTHON = True
     IS_PYPY = False
 
+from io import open as io_open
 try:
     from StringIO import StringIO
 except ImportError:
-    from io import StringIO
+    from io import StringIO  # doesn't accept 'str' in Py2
 
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
-
-try:
-    from io import open as io_open
-except ImportError:
-    from codecs import open as io_open
 
 try:
     import threading
@@ -71,30 +67,42 @@ except NameError:
 WITH_CYTHON = True
 CY3_DIR = None
 
-from distutils.dist import Distribution
-from distutils.core import Extension
 from distutils.command.build_ext import build_ext as _build_ext
 from distutils import sysconfig
-distutils_distro = Distribution()
 
 
-if sys.platform == 'win32':
-    # TODO: Figure out why this hackery (see http://thread.gmane.org/gmane.comp.python.cython.devel/8280/).
-    config_files = distutils_distro.find_config_files()
-    try: config_files.remove('setup.cfg')
-    except ValueError: pass
-    distutils_distro.parse_config_files(config_files)
+def get_distutils_distro(_cache=[]):
+    if _cache:
+        return _cache[0]
+    # late import to accomodate for setuptools override
+    from distutils.dist import Distribution
+    distutils_distro = Distribution()
 
-    cfgfiles = distutils_distro.find_config_files()
-    try: cfgfiles.remove('setup.cfg')
-    except ValueError: pass
-    distutils_distro.parse_config_files(cfgfiles)
+    if sys.platform == 'win32':
+        # TODO: Figure out why this hackery (see http://thread.gmane.org/gmane.comp.python.cython.devel/8280/).
+        config_files = distutils_distro.find_config_files()
+        try: config_files.remove('setup.cfg')
+        except ValueError: pass
+        distutils_distro.parse_config_files(config_files)
+
+        cfgfiles = distutils_distro.find_config_files()
+        try: cfgfiles.remove('setup.cfg')
+        except ValueError: pass
+        distutils_distro.parse_config_files(cfgfiles)
+    _cache.append(distutils_distro)
+    return distutils_distro
+
 
 EXT_DEP_MODULES = {
-    'tag:numpy' : 'numpy',
-    'tag:pstats': 'pstats',
-    'tag:posix' : 'posix',
-    'tag:array' : 'array',
+    'tag:numpy':    'numpy',
+    'tag:asyncio':  'asyncio',
+    'tag:pstats':   'pstats',
+    'tag:posix':    'posix',
+    'tag:array':    'array',
+    'tag:coverage': 'Cython.Coverage',
+    'Coverage':     'Cython.Coverage',
+    'tag:ipython':  'IPython',
+    'tag:jedi':     'jedi',
 }
 
 def patch_inspect_isfunction():
@@ -113,6 +121,77 @@ def unpatch_inspect_isfunction():
         pass
     else:
         inspect.isfunction = orig_isfunction
+
+def def_to_cdef(source):
+    '''
+    Converts the module-level def methods into cdef methods, i.e.
+
+        @decorator
+        def foo([args]):
+            """
+            [tests]
+            """
+            [body]
+
+    becomes
+
+        def foo([args]):
+            """
+            [tests]
+            """
+            return foo_c([args])
+
+        cdef foo_c([args]):
+            [body]
+    '''
+    output = []
+    skip = False
+    def_node = re.compile(r'def (\w+)\(([^()*]*)\):').match
+    lines = iter(source.split('\n'))
+    for line in lines:
+        if not line.strip():
+            output.append(line)
+            continue
+
+        if skip:
+            if line[0] != ' ':
+                skip = False
+            else:
+                continue
+
+        if line[0] == '@':
+            skip = True
+            continue
+
+        m = def_node(line)
+        if m:
+            name = m.group(1)
+            args = m.group(2)
+            if args:
+                args_no_types = ", ".join(arg.split()[-1] for arg in args.split(','))
+            else:
+                args_no_types = ""
+            output.append("def %s(%s):" % (name, args_no_types))
+            line = next(lines)
+            if '"""' in line:
+                has_docstring = True
+                output.append(line)
+                for line in lines:
+                    output.append(line)
+                    if '"""' in line:
+                        break
+            else:
+                has_docstring = False
+            output.append("    return %s_c(%s)" % (name, args_no_types))
+            output.append('')
+            output.append("cdef %s_c(%s):" % (name, args))
+            if not has_docstring:
+                output.append(line)
+
+        else:
+            output.append(line)
+
+    return '\n'.join(output)
 
 def update_linetrace_extension(ext):
     ext.define_macros.append(('CYTHON_TRACE', 1))
@@ -189,6 +268,10 @@ def get_openmp_compiler_flags(language):
     if not gcc_version:
         return None # not gcc - FIXME: do something about other compilers
 
+    # gcc defines "__int128_t", assume that at least all 64 bit architectures have it
+    global COMPILER_HAS_INT128
+    COMPILER_HAS_INT128 = getattr(sys, 'maxsize', getattr(sys, 'maxint', 0)) > 2**60
+
     compiler_version = gcc_version.group(1)
     if compiler_version and compiler_version.split('.') >= ['4', '2']:
         return '-fopenmp', '-fopenmp'
@@ -198,6 +281,8 @@ try:
 except locale.Error:
     pass
 
+COMPILER = None
+COMPILER_HAS_INT128 = False
 OPENMP_C_COMPILER_FLAGS = get_openmp_compiler_flags('c')
 OPENMP_CPP_COMPILER_FLAGS = get_openmp_compiler_flags('cpp')
 
@@ -219,49 +304,11 @@ def _is_py3_before_32(excluded, version):
 VER_DEP_MODULES = {
     # tests are excluded if 'CurrentPythonVersion OP VersionTuple', i.e.
     # (2,4) : (operator.lt, ...) excludes ... when PyVer < 2.4.x
-    (2,4) : (operator.lt, lambda x: x in ['run.extern_builtins_T258',
-                                          'run.builtin_sorted',
-                                          'run.reversed_iteration',
-                                          ]),
-    (2,5) : (operator.lt, lambda x: x in ['run.any',
-                                          'run.all',
-                                          'run.yield_from_pep380',  # GeneratorExit
-                                          'run.generator_frame_cycle', # yield in try-finally
-                                          'run.generator_expressions_in_class',
-                                          'run.absolute_import',
-                                          'run.relativeimport_T542',
-                                          'run.relativeimport_star_T542',
-                                          'run.initial_file_path',  # relative import
-                                          'run.pynumber_subtype_conversion',  # bug in Py2.4
-                                          'build.cythonize_script',  # python2.4 -m a.b.c
-                                          'build.cythonize_script_excludes',  # python2.4 -m a.b.c
-                                          'build.cythonize_script_package',  # python2.4 -m a.b.c
-                                          ]),
-    (2,6) : (operator.lt, lambda x: x in ['run.print_function',
-                                          'run.language_level', # print function
-                                          'run.cython3',
-                                          'run.property_decorator_T593', # prop.setter etc.
-                                          'run.generators_py', # generators, with statement
-                                          'run.pure_py', # decorators, with statement
-                                          'run.purecdef',
-                                          'run.struct_conversion',
-                                          'run.bytearray_coercion',
-                                          'run.bytearraymethods',
-                                          'run.bytearray_ascii_auto_encoding',
-                                          'run.bytearray_default_auto_encoding',
-                                          # memory views require buffer protocol
-                                          'memoryview.relaxed_strides',
-                                          'memoryview.cythonarray',
-                                          'memoryview.memslice',
-                                          'memoryview.numpy_memoryview',
-                                          'memoryview.memoryviewattrs',
-                                          'memoryview.memoryview',
-                                          'run.withstat_py',
-                                          ]),
     (2,7) : (operator.lt, lambda x: x in ['run.withstat_py27', # multi context with statement
                                           'run.yield_inside_lambda',
                                           'run.test_dictviews',
                                           'run.pyclass_special_methods',
+                                          'run.set_literals',
                                           ]),
     # The next line should start (3,); but this is a dictionary, so
     # we can only have one (3,) key.  Since 2.7 is supposed to be the
@@ -278,20 +325,14 @@ VER_DEP_MODULES = {
     (3,1): (_is_py3_before_32, lambda x: x in ['run.pyclass_special_methods',
                                                ]),
     (3,3) : (operator.lt, lambda x: x in ['build.package_compilation',
+                                          'run.yield_from_py33',
                                           ]),
-    (3,4,0,'beta',3) : (operator.le, lambda x: x in ['run.py34_signature',
-                                          ]),
+    (3,4): (operator.lt, lambda x: x in ['run.py34_signature',
+                                         ]),
+    (3,5): (operator.lt, lambda x: x in ['run.py35_pep492_interop',
+                                         ]),
 }
 
-# files that should not be converted to Python 3 code with 2to3
-KEEP_2X_FILES = [
-    os.path.join('Cython', 'Debugger', 'Tests', 'test_libcython_in_gdb.py'),
-    os.path.join('Cython', 'Debugger', 'Tests', 'test_libpython_in_gdb.py'),
-    os.path.join('Cython', 'Debugger', 'libcython.py'),
-    os.path.join('Cython', 'Debugger', 'libpython.py'),
-]
-
-COMPILER = None
 INCLUDE_DIRS = [ d for d in os.getenv('INCLUDE', '').split(os.pathsep) if d ]
 CFLAGS = os.getenv('CFLAGS', '').split()
 CCACHE = os.getenv('CYTHON_RUNTESTS_CCACHE', '').split()
@@ -337,7 +378,7 @@ def parse_tags(filepath):
                 if tag == 'tags':
                     tag = 'tag'
                     print("WARNING: test tags use the 'tag' directive, not 'tags' (%s)" % filepath)
-                if tag not in ('mode', 'tag', 'ticket', 'cython', 'distutils'):
+                if tag not in ('mode', 'tag', 'ticket', 'cython', 'distutils', 'preparse'):
                     print("WARNING: unknown test directive '%s' found (%s)" % (tag, filepath))
                 values = values.split(',')
                 tags[tag].extend(filter(None, [value.strip() for value in values]))
@@ -421,7 +462,8 @@ class ErrorWriter(object):
 class TestBuilder(object):
     def __init__(self, rootdir, workdir, selectors, exclude_selectors, annotate,
                  cleanup_workdir, cleanup_sharedlibs, cleanup_failures,
-                 with_pyregr, cython_only, languages, test_bugs, fork, language_level):
+                 with_pyregr, cython_only, languages, test_bugs, fork, language_level,
+                 common_utility_dir):
         self.rootdir = rootdir
         self.workdir = workdir
         self.selectors = selectors
@@ -436,6 +478,7 @@ class TestBuilder(object):
         self.test_bugs = test_bugs
         self.fork = fork
         self.language_level = language_level
+        self.common_utility_dir = common_utility_dir
 
     def build_suite(self):
         suite = unittest.TestSuite()
@@ -481,7 +524,7 @@ class TestBuilder(object):
                      if match(fqmodule, tags) ]:
                 continue
             if self.exclude_selectors:
-                if [1 for match in self.exclude_selectors 
+                if [1 for match in self.exclude_selectors
                         if match(fqmodule, tags)]:
                     continue
 
@@ -512,10 +555,10 @@ class TestBuilder(object):
             for test in self.build_tests(test_class, path, workdir,
                                          module, mode == 'error', tags):
                 suite.addTest(test)
-            if mode == 'run' and ext == '.py' and not self.cython_only:
+            if mode == 'run' and ext == '.py' and not self.cython_only and not filename.startswith('test_'):
                 # additionally test file in real Python
                 suite.addTest(PureDoctestTestCase(module, os.path.join(path, filename)))
-                
+
         return suite
 
     def build_tests(self, test_class, path, workdir, module, expect_errors, tags):
@@ -538,19 +581,25 @@ class TestBuilder(object):
         elif 'no-cpp' in tags['tag'] and 'cpp' in self.languages:
             languages = list(languages)
             languages.remove('cpp')
+
+        preparse_list = tags.get('preparse', ['id'])
         tests = [ self.build_test(test_class, path, workdir, module, tags,
-                                  language, expect_errors, warning_errors)
-                  for language in languages ]
+                                  language, expect_errors, warning_errors, preparse)
+                  for language in languages
+                  for preparse in preparse_list ]
         return tests
 
     def build_test(self, test_class, path, workdir, module, tags,
-                   language, expect_errors, warning_errors):
+                   language, expect_errors, warning_errors, preparse):
         language_workdir = os.path.join(workdir, language)
         if not os.path.exists(language_workdir):
             os.makedirs(language_workdir)
         workdir = os.path.join(language_workdir, module)
+        if preparse != 'id':
+            workdir += '_%s' % str(preparse)
         return test_class(path, workdir, module, tags,
                           language=language,
+                          preparse=preparse,
                           expect_errors=expect_errors,
                           annotate=self.annotate,
                           cleanup_workdir=self.cleanup_workdir,
@@ -559,18 +608,22 @@ class TestBuilder(object):
                           cython_only=self.cython_only,
                           fork=self.fork,
                           language_level=self.language_level,
-                          warning_errors=warning_errors)
+                          warning_errors=warning_errors,
+                          common_utility_dir=self.common_utility_dir)
 
 class CythonCompileTestCase(unittest.TestCase):
-    def __init__(self, test_directory, workdir, module, tags, language='c',
+    def __init__(self, test_directory, workdir, module, tags, language='c', preparse='id',
                  expect_errors=False, annotate=False, cleanup_workdir=True,
                  cleanup_sharedlibs=True, cleanup_failures=True, cython_only=False,
-                 fork=True, language_level=2, warning_errors=False):
+                 fork=True, language_level=2, warning_errors=False,
+                 common_utility_dir=None):
         self.test_directory = test_directory
         self.tags = tags
         self.workdir = workdir
         self.module = module
         self.language = language
+        self.preparse = preparse
+        self.name = module if self.preparse == "id" else "%s_%s" % (module, preparse)
         self.expect_errors = expect_errors
         self.annotate = annotate
         self.cleanup_workdir = cleanup_workdir
@@ -580,19 +633,19 @@ class CythonCompileTestCase(unittest.TestCase):
         self.fork = fork
         self.language_level = language_level
         self.warning_errors = warning_errors
+        self.common_utility_dir = common_utility_dir
         unittest.TestCase.__init__(self)
 
     def shortDescription(self):
-        return "compiling (%s) %s" % (self.language, self.module)
+        return "compiling (%s) %s" % (self.language, self.name)
 
     def setUp(self):
         from Cython.Compiler import Options
-        self._saved_options = [ (name, getattr(Options, name))
-                                for name in ('warning_errors',
-                                             'clear_to_none',
-                                             'error_on_unknown_names',
-                                             'error_on_uninitialized') ]
-        self._saved_default_directives = Options.directive_defaults.items()
+        self._saved_options = [
+            (name, getattr(Options, name))
+            for name in ('warning_errors', 'clear_to_none', 'error_on_unknown_names', 'error_on_uninitialized')
+        ]
+        self._saved_default_directives = list(Options.directive_defaults.items())
         Options.warning_errors = self.warning_errors
         if sys.version_info >= (3, 4):
             Options.directive_defaults['autotestdict'] = False
@@ -666,11 +719,16 @@ class CythonCompileTestCase(unittest.TestCase):
                 if is_related(filename)]
 
     def copy_files(self, test_directory, target_directory, file_list):
-        # use symlink on Unix, copy on Windows
-        try:
-            copy = os.symlink
-        except AttributeError:
-            copy = shutil.copy
+        if self.preparse and self.preparse != 'id':
+            preparse_func = globals()[self.preparse]
+            def copy(src, dest):
+                open(dest, 'w').write(preparse_func(open(src).read()))
+        else:
+            # use symlink on Unix, copy on Windows
+            try:
+                copy = os.symlink
+            except AttributeError:
+                copy = shutil.copy
 
         join = os.path.join
         for filename in file_list:
@@ -697,6 +755,7 @@ class CythonCompileTestCase(unittest.TestCase):
                     out.write(line)
         finally:
             source_and_output.close()
+
         try:
             geterrors = out.geterrors
         except AttributeError:
@@ -712,10 +771,20 @@ class CythonCompileTestCase(unittest.TestCase):
             include_dirs.append(incdir)
         source = self.find_module_source_file(
             os.path.join(test_directory, module + '.pyx'))
+        if self.preparse == 'id':
+            source = self.find_module_source_file(
+                os.path.join(test_directory, module + '.pyx'))
+        else:
+            self.copy_files(test_directory, targetdir, [module + '.pyx'])
+            source = os.path.join(targetdir, module + '.pyx')
         target = os.path.join(targetdir, self.build_target_filename(module))
 
         if extra_compile_options is None:
             extra_compile_options = {}
+
+        if 'allow_unknown_names' in self.tags['tag']:
+            from Cython.Compiler import Options
+            Options.error_on_unknown_names = False
 
         try:
             CompilationOptions
@@ -723,6 +792,7 @@ class CythonCompileTestCase(unittest.TestCase):
             from Cython.Compiler.Main import CompilationOptions
             from Cython.Compiler.Main import compile as cython_compile
             from Cython.Compiler.Main import default_options
+        common_utility_include_dir = self.common_utility_dir
 
         options = CompilationOptions(
             default_options,
@@ -734,6 +804,7 @@ class CythonCompileTestCase(unittest.TestCase):
             language_level = self.language_level,
             generate_pxi = False,
             evaluate_tree_assertions = True,
+            common_utility_include_dir = common_utility_include_dir,
             **extra_compile_options
             )
         cython_compile(source, options=options,
@@ -744,7 +815,7 @@ class CythonCompileTestCase(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(workdir)
         try:
-            build_extension = build_ext(distutils_distro)
+            build_extension = build_ext(get_distutils_distro())
             build_extension.include_dirs = INCLUDE_DIRS[:]
             if incdir:
                 build_extension.include_dirs.append(incdir)
@@ -764,10 +835,12 @@ class CythonCompileTestCase(unittest.TestCase):
 
             related_files = self.related_files(test_directory, module)
             self.copy_files(test_directory, workdir, related_files)
+
+            from distutils.core import Extension
             extension = Extension(
                 module,
-                sources = self.source_files(workdir, module, related_files),
-                extra_compile_args = ext_compile_flags,
+                sources=self.source_files(workdir, module, related_files),
+                extra_compile_args=ext_compile_flags,
                 **extra_extension_args
                 )
 
@@ -835,7 +908,15 @@ class CythonCompileTestCase(unittest.TestCase):
             finally:
                 sys.stderr = old_stderr
 
-        if errors or expected_errors:
+        tostderr = sys.__stderr__.write
+        if 'cerror' in self.tags['tag']:
+            if errors:
+                tostderr("\n=== Expected C compile error ===\n")
+                tostderr("\n=== Got Cython errors: ===\n")
+                tostderr('\n'.join(errors))
+                tostderr('\n\n')
+                raise RuntimeError('should have generated extension code')
+        elif errors or expected_errors:
             try:
                 for expected, error in zip(expected_errors, errors):
                     self.assertEquals(expected, error)
@@ -846,19 +927,48 @@ class CythonCompileTestCase(unittest.TestCase):
                     unexpected_error = errors[len(expected_errors)]
                     self.assertEquals(None, unexpected_error)
             except AssertionError:
-                print("\n=== Expected errors: ===")
-                print('\n'.join(expected_errors))
-                print("\n\n=== Got errors: ===")
-                print('\n'.join(errors))
-                print('\n')
+                tostderr("\n=== Expected errors: ===\n")
+                tostderr('\n'.join(expected_errors))
+                tostderr("\n\n=== Got errors: ===\n")
+                tostderr('\n'.join(errors))
+                tostderr('\n\n')
                 raise
             return None
 
-        if self.cython_only:
-            so_path = None
-        else:
-            so_path = self.run_distutils(test_directory, module, workdir, incdir)
+        so_path = None
+        if not self.cython_only:
+            from Cython.Utils import captured_fd, print_bytes
+            from distutils.errors import CompileError, LinkError
+            show_output = True
+            get_stderr = get_stdout = None
+            try:
+                with captured_fd(1) as get_stdout:
+                    with captured_fd(2) as get_stderr:
+                        so_path = self.run_distutils(test_directory, module, workdir, incdir)
+            except Exception as exc:
+                if ('cerror' in self.tags['tag'] and
+                    ((get_stderr and get_stderr()) or
+                     isinstance(exc, (CompileError, LinkError)))):
+                    show_output = False  # expected C compiler failure
+                else:
+                    raise
+            else:
+                if 'cerror' in self.tags['tag']:
+                    raise RuntimeError('should have failed C compile')
+            finally:
+                if show_output:
+                    stdout = get_stdout and get_stdout().strip()
+                    if stdout:
+                        tostderr("\n=== C/C++ compiler output: ===\n")
+                        print_bytes(stdout, end=None, file=sys.__stderr__)
+                    stderr = get_stderr and get_stderr().strip()
+                    if stderr:
+                        tostderr("\n=== C/C++ compiler error output: ===\n")
+                        print_bytes(stderr, end=None, file=sys.__stderr__)
+                    if stdout or stderr:
+                        tostderr("\n==============================\n")
         return so_path
+
 
 class CythonRunTestCase(CythonCompileTestCase):
     def setUp(self):
@@ -870,7 +980,7 @@ class CythonRunTestCase(CythonCompileTestCase):
         if self.cython_only:
             return CythonCompileTestCase.shortDescription(self)
         else:
-            return "compiling (%s) and running %s" % (self.language, self.module)
+            return "compiling (%s) and running %s" % (self.language, self.name)
 
     def run(self, result=None):
         if result is None:
@@ -882,7 +992,7 @@ class CythonRunTestCase(CythonCompileTestCase):
                 self.success = False
                 ext_so_path = self.runCompileTest()
                 failures, errors = len(result.failures), len(result.errors)
-                if not self.cython_only:
+                if not self.cython_only and ext_so_path is not None:
                     self.run_tests(result, ext_so_path)
                 if failures == len(result.failures) and errors == len(result.errors):
                     # No new errors...
@@ -1072,7 +1182,7 @@ class PartialTestResult(_TextTestResult):
 
 class CythonUnitTestCase(CythonRunTestCase):
     def shortDescription(self):
-        return "compiling (%s) tests in %s" % (self.language, self.module)
+        return "compiling (%s) tests in %s" % (self.language, self.name)
 
     def run_tests(self, result, ext_so_path):
         module = import_ext(self.module, ext_so_path)
@@ -1134,7 +1244,15 @@ class CythonPyregrTestCase(CythonRunTestCase):
                     module = import_ext(self.module, ext_so_path)
                     sys.stdout.flush() # helps in case of crashes
                     if hasattr(module, 'test_main'):
-                        module.test_main()
+                        # help 'doctest.DocFileTest' find the module path through frame inspection
+                        fake_caller_module_globals = {
+                            'module': module,
+                            '__name__': module.__name__,
+                        }
+                        call_tests = eval(
+                            'lambda: module.test_main()',
+                            fake_caller_module_globals, fake_caller_module_globals)
+                        call_tests()
                         sys.stdout.flush() # helps in case of crashes
                 except (unittest.SkipTest, support.ResourceDenied):
                     result.addSkip(self, 'ok')
@@ -1143,7 +1261,9 @@ class CythonPyregrTestCase(CythonRunTestCase):
 
         run_forked_test(result, run_test, self.shortDescription(), self.fork)
 
+
 include_debugger = IS_CPYTHON and sys.version_info[:2] > (2, 5)
+
 
 def collect_unittests(path, module_prefix, suite, selectors, exclude_selectors):
     def file_matches(filename):
@@ -1175,9 +1295,9 @@ def collect_unittests(path, module_prefix, suite, selectors, exclude_selectors):
                 if file_matches(f):
                     filepath = os.path.join(dirpath, f)[:-len(".py")]
                     modulename = module_prefix + filepath[len(path)+1:].replace(os.path.sep, '.')
-                    if not [ 1 for match in selectors if match(modulename) ]:
+                    if not any(1 for match in selectors if match(modulename)):
                         continue
-                    if [ 1 for match in exclude_selectors if match(modulename) ]:
+                    if any(1 for match in exclude_selectors if match(modulename)):
                         continue
                     module = __import__(modulename)
                     for x in modulename.split('.')[1:]:
@@ -1185,12 +1305,11 @@ def collect_unittests(path, module_prefix, suite, selectors, exclude_selectors):
                     suite.addTests([loader.loadTestsFromModule(module)])
 
 
-
 def collect_doctests(path, module_prefix, suite, selectors, exclude_selectors):
     def package_matches(dirname):
         if dirname == 'Debugger' and not include_debugger:
             return False
-        return dirname not in ("Mac", "Distutils", "Plex")
+        return dirname not in ("Mac", "Distutils", "Plex", "Tempita")
     def file_matches(filename):
         filename, ext = os.path.splitext(filename)
         blacklist = ['libcython', 'libpython', 'test_libcython_in_gdb',
@@ -1383,28 +1502,34 @@ class VersionDependencyExcluder:
                 return True
         return False
 
+
 class FileListExcluder:
 
-    def __init__(self, list_file):
+    def __init__(self, list_file, verbose=False):
+        self.verbose = verbose
         self.excludes = {}
-        f = open(list_file)
-        try:
-            for line in f.readlines():
+        self._list_file = os.path.relpath(list_file)
+        with open(list_file) as f:
+            for line in f:
                 line = line.strip()
                 if line and line[0] != '#':
                     self.excludes[line.split()[0]] = True
-        finally:
-            f.close()
 
     def __call__(self, testname, tags=None):
-        return testname in self.excludes or testname.split('.')[-1] in self.excludes
+        exclude = (testname in self.excludes
+                   or testname.split('.')[-1] in self.excludes)
+        if exclude and self.verbose:
+            print("Excluding %s because it's listed in %s"
+                  % (testname, self._list_file))
+        return exclude
+
 
 class TagsSelector:
 
     def __init__(self, tag, value):
         self.tag = tag
         self.value = value
-    
+
     def __call__(self, testname, tags=None):
         if tags is None:
             return False
@@ -1412,7 +1537,7 @@ class TagsSelector:
             return self.value in tags[self.tag]
 
 class RegExSelector:
-    
+
     def __init__(self, pattern_string):
         try:
             self.pattern = re.compile(pattern_string, re.I|re.U)
@@ -1440,15 +1565,14 @@ class ShardExcludeSelector:
 
     def __call__(self, testname, tags=None):
         return abs(hash(testname)) % self.shard_count != self.shard_num
-        
+
 
 def refactor_for_py3(distdir, cy3_dir):
     # need to convert Cython sources first
     import lib2to3.refactor
     from distutils.util import copydir_run_2to3
-    fixers = [ fix for fix in lib2to3.refactor.get_fixers_from_package("lib2to3.fixes")
-               if fix.split('fix_')[-1] not in ('next',)
-               ]
+    with open('2to3-fixers.txt') as f:
+        fixers = [line.strip() for line in f if line.strip()]
     if not os.path.exists(cy3_dir):
         os.makedirs(cy3_dir)
     import distutils.log as dlog
@@ -1462,15 +1586,14 @@ def refactor_for_py3(distdir, cy3_dir):
                      recursive-include Cython/Debugger/Tests *
                      recursive-include Cython/Utility *
                      recursive-exclude pyximport test
+                     include Tools/*.py
                      include pyximport/*.py
                      include runtests.py
                      include cython.py
+                     include cythonize.py
                      ''')
     sys.path.insert(0, cy3_dir)
 
-    for keep_2x_file in KEEP_2X_FILES:
-        destfile = os.path.join(cy3_dir, keep_2x_file)
-        shutil.copy(keep_2x_file, destfile)
 
 class PendingThreadsError(RuntimeError):
     pass
@@ -1594,7 +1717,7 @@ def main():
     parser.add_option("-x", "--exclude", dest="exclude",
                       action="append", metavar="PATTERN",
                       help="exclude tests matching the PATTERN")
-    parser.add_option("--shard_count", dest="shard_count", metavar="N",
+    parser.add_option("-j", "--shard_count", dest="shard_count", metavar="N",
                       type=int, default=1,
                       help="shard this run into several parallel runs")
     parser.add_option("--shard_num", dest="shard_num", metavar="K",
@@ -1641,15 +1764,16 @@ def main():
                       help="use pyximport to automatically compile imported .pyx and .py files")
     parser.add_option("--watermark", dest="watermark", default=None,
                       help="deterministic generated by string")
+    parser.add_option("--use_common_utility_dir", default=False, action="store_true")
+    parser.add_option("--use_formal_grammar", default=False, action="store_true")
 
     options, cmd_args = parser.parse_args()
 
     WORKDIR = os.path.abspath(options.work_dir)
-    
-    if sys.version_info[0] >= 3:
-        options.doctests = False
-        if options.with_cython:
-            sys.path.insert(0, options.cython_dir)
+
+    if options.with_cython and sys.version_info[0] >= 3:
+        sys.path.insert(0, options.cython_dir)
+        if sys.version_info[:2] == (3, 2):
             try:
                 # try if Cython is installed in a Py3 version
                 import Cython.Compiler.Main
@@ -1663,12 +1787,7 @@ def main():
                 # hasn't been refactored yet - do it now
                 global CY3_DIR
                 CY3_DIR = cy3_dir = os.path.join(WORKDIR, 'Cy3')
-                if sys.version_info >= (3,1):
-                    refactor_for_py3(DISTDIR, cy3_dir)
-                elif os.path.isdir(cy3_dir):
-                    sys.path.insert(0, cy3_dir)
-                else:
-                    options.with_cython = False
+                refactor_for_py3(DISTDIR, cy3_dir)
 
     if options.watermark:
         import Cython.Compiler.Version
@@ -1688,6 +1807,9 @@ def main():
                 coverage.erase()
                 coverage.start()
 
+    if options.xml_output_dir:
+        shutil.rmtree(options.xml_output_dir, ignore_errors=True)
+
     if WITH_CYTHON:
         global CompilationOptions, pyrex_default_options, cython_compile
         from Cython.Compiler.Main import \
@@ -1700,6 +1822,7 @@ def main():
         Options.generate_cleanup_code = 3   # complete cleanup code
         from Cython.Compiler import DebugFlags
         DebugFlags.debug_temp_code_comments = 1
+        pyrex_default_options['formal_grammar'] = options.use_formal_grammar
 
     if options.shard_count > 1 and options.shard_num == -1:
         import multiprocessing
@@ -1742,9 +1865,12 @@ def runtests(options, cmd_args, coverage=None):
     ROOTDIR = os.path.abspath(options.root_dir)
     WORKDIR = os.path.abspath(options.work_dir)
 
+    xml_output_dir = options.xml_output_dir
     if options.shard_num > -1:
         WORKDIR = os.path.join(WORKDIR, str(options.shard_num))
-    
+        if xml_output_dir:
+            xml_output_dir = os.path.join(xml_output_dir, 'shard-%03d' % options.shard_num)
+
     # RUN ALL TESTS!
     UNITTEST_MODULE = "Cython"
     UNITTEST_ROOT = os.path.join(os.path.dirname(__file__), UNITTEST_MODULE)
@@ -1781,7 +1907,7 @@ def runtests(options, cmd_args, coverage=None):
         sys.path.insert(0, os.path.split(libpath)[0])
         CFLAGS.append("-DCYTHON_REFNANNY=1")
 
-    if options.xml_output_dir and options.fork:
+    if xml_output_dir and options.fork:
         # doesn't currently work together
         sys.stderr.write("Disabling forked testing to support XML test output\n")
         options.fork = False
@@ -1800,24 +1926,46 @@ def runtests(options, cmd_args, coverage=None):
                 test_bugs = True
 
     selectors = [ string_selector(r) for r in cmd_args ]
+    verbose_excludes = selectors or options.verbosity >= 2
     if not selectors:
         selectors = [ lambda x, tags=None: True ]
 
-    # Chech which external modules are not present and exclude tests
+    # Check which external modules are not present and exclude tests
     # which depends on them (by prefix)
 
     missing_dep_excluder = MissingDependencyExcluder(EXT_DEP_MODULES)
     version_dep_excluder = VersionDependencyExcluder(VER_DEP_MODULES)
     exclude_selectors = [missing_dep_excluder, version_dep_excluder] # want to print msg at exit
 
+    try:
+        import IPython.core.release
+        if list(IPython.core.release._ver) < [1, 0, 0]:
+            raise ImportError
+    except (ImportError, AttributeError, TypeError):
+        exclude_selectors.append(RegExSelector('IPython'))
+
+    try:
+        import jedi
+        if not ([0, 9] <= list(map(int, re.findall('[0-9]+', jedi.__version__ or '0')))):
+            raise ImportError
+    except (ImportError, AttributeError, TypeError):
+        exclude_selectors.append(RegExSelector('Jedi'))
+
     if options.exclude:
         exclude_selectors += [ string_selector(r) for r in options.exclude ]
+
+    if not COMPILER_HAS_INT128 or not IS_CPYTHON:
+        exclude_selectors += [RegExSelector('int128')]
 
     if options.shard_num > -1:
         exclude_selectors.append(ShardExcludeSelector(options.shard_num, options.shard_count))
 
     if not test_bugs:
-        exclude_selectors += [ FileListExcluder(os.path.join(ROOTDIR, "bugs.txt")) ]
+        exclude_selectors += [
+            FileListExcluder(os.path.join(ROOTDIR, bugs_file_name), verbose=verbose_excludes)
+            for bugs_file_name in ['bugs.txt'] + (['pypy_bugs.txt'] if IS_PYPY else []) +
+            (['windows_bugs.txt'] if sys.platform == 'win32' else [])
+        ]
 
     if sys.platform in ['win32', 'cygwin'] and sys.version_info < (2,6):
         exclude_selectors += [ lambda x: x == "run.specialfloat" ]
@@ -1842,6 +1990,13 @@ def runtests(options, cmd_args, coverage=None):
         sys.stderr.write("Backends: %s\n" % ','.join(backends))
     languages = backends
 
+    if options.use_common_utility_dir:
+        common_utility_dir = os.path.join(WORKDIR, 'utility_code')
+        if not os.path.exists(common_utility_dir):
+            os.makedirs(common_utility_dir)
+    else:
+        common_utility_dir = None
+
     sys.stderr.write("\n")
 
     test_suite = unittest.TestSuite()
@@ -1858,24 +2013,31 @@ def runtests(options, cmd_args, coverage=None):
                                 options.cleanup_sharedlibs, options.cleanup_failures,
                                 options.pyregr,
                                 options.cython_only, languages, test_bugs,
-                                options.fork, options.language_level)
+                                options.fork, options.language_level,
+                                common_utility_dir)
         test_suite.addTest(filetests.build_suite())
 
     if options.system_pyregr and languages:
         sys_pyregr_dir = os.path.join(sys.prefix, 'lib', 'python'+sys.version[:3], 'test')
+        if not os.path.isdir(sys_pyregr_dir):
+            sys_pyregr_dir = os.path.join(os.path.dirname(sys.executable), 'Lib', 'test')  # source build
         if os.path.isdir(sys_pyregr_dir):
             filetests = TestBuilder(ROOTDIR, WORKDIR, selectors, exclude_selectors,
                                     options.annotate_source, options.cleanup_workdir,
                                     options.cleanup_sharedlibs, options.cleanup_failures,
                                     True,
                                     options.cython_only, languages, test_bugs,
-                                    options.fork, sys.version_info[0])
+                                    options.fork, sys.version_info[0],
+                                    common_utility_dir)
             sys.stderr.write("Including CPython regression tests in %s\n" % sys_pyregr_dir)
             test_suite.addTest(filetests.handle_directory(sys_pyregr_dir, 'pyregr'))
 
-    if options.xml_output_dir:
+    if xml_output_dir:
         from Cython.Tests.xmlrunner import XMLTestRunner
-        test_runner = XMLTestRunner(output=options.xml_output_dir,
+        if not os.path.exists(xml_output_dir):
+            try: os.makedirs(xml_output_dir)
+            except OSError: pass  # concurrency issue?
+        test_runner = XMLTestRunner(output=xml_output_dir,
                                     verbose=options.verbosity > 0)
     else:
         test_runner = unittest.TextTestRunner(verbosity=options.verbosity)
@@ -1887,13 +2049,25 @@ def runtests(options, cmd_args, coverage=None):
 
     result = test_runner.run(test_suite)
 
+    if common_utility_dir and options.shard_num < 0 and options.cleanup_workdir:
+        shutil.rmtree(common_utility_dir)
+
     if coverage is not None:
         coverage.stop()
-        ignored_modules = ('Options', 'Version', 'DebugFlags', 'CmdLine')
-        modules = [ module for name, module in sys.modules.items()
-                    if module is not None and
-                    name.startswith('Cython.Compiler.') and
-                    name[len('Cython.Compiler.'):] not in ignored_modules ]
+        ignored_modules = set(
+            'Cython.Compiler.' + name
+            for name in ('Version', 'DebugFlags', 'CmdLine')) | set(
+            'Cython.' + name
+            for name in ('Debugging',))
+        ignored_packages = ['Cython.Runtime', 'Cython.Tempita']
+        modules = [
+            module for name, module in sys.modules.items()
+            if module is not None and
+            name.startswith('Cython.') and
+            '.Tests' not in name and
+            name not in ignored_modules and
+            not any(name.startswith(package) for package in ignored_packages)
+        ]
         if options.coverage:
             coverage.report(modules, show_missing=0)
         if options.coverage_xml:
@@ -1919,8 +2093,6 @@ def runtests(options, cmd_args, coverage=None):
 if __name__ == '__main__':
     try:
         main()
-    except SystemExit: # <= Py2.4 ...
-        raise
     except Exception:
         traceback.print_exc()
         try:
@@ -1928,3 +2100,4 @@ if __name__ == '__main__':
         except PendingThreadsError:
             # normal program exit won't kill the threads, do it the hard way here
             flush_and_terminate(1)
+        sys.exit(1)

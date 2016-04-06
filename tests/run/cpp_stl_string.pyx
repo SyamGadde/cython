@@ -1,4 +1,5 @@
-# tag: cpp
+# mode: run
+# tag: cpp, werror
 
 cimport cython
 
@@ -83,7 +84,7 @@ def test_copy(char *a):
     True
     """
     cdef string t = string(a)
-    cdef char buffer[6]
+    cdef char[6] buffer
     cdef size_t length = t.copy(buffer, 4, 1)
     buffer[length] = c'\0'
     return buffer
@@ -165,6 +166,29 @@ def test_decode(char* a):
     """
     cdef string b = string(a)
     return b.decode('ascii')
+
+
+@cython.test_assert_path_exists("//ReturnStatNode//PythonCapiCallNode")
+def test_cstr_decode(char* a):
+    """
+    >>> print(test_cstr_decode(b_asdf))
+    asdf
+    """
+    cdef string b = string(a)
+    return b.c_str().decode('utf-8')
+
+
+@cython.test_assert_path_exists("//ReturnStatNode//PythonCapiCallNode")
+@cython.test_fail_if_path_exists("//ReturnStatNode//AttributeNode")
+def test_cstr_ptr_decode(char* a):
+    """
+    >>> print(test_cstr_ptr_decode(b_asdf))
+    asdf
+    """
+    cdef string b = string(a)
+    s = b.c_str()
+    return s.decode('utf-8')
+
 
 @cython.test_assert_path_exists("//PythonCapiCallNode")
 @cython.test_fail_if_path_exists("//AttributeNode")

@@ -32,8 +32,10 @@ def simple():
     assert typeof(u) == "unicode object", typeof(u)
     L = [1,2,3]
     assert typeof(L) == "list object", typeof(L)
-    t = (4,5,6)
+    t = (4,5,6,())
     assert typeof(t) == "tuple object", typeof(t)
+    t2 = (4, 5.0, 6)
+    assert typeof(t2) == "(long, double, long)", typeof(t)
 
 def builtin_types():
     """
@@ -80,7 +82,7 @@ def slicing():
     assert typeof(L1) == "list object", typeof(L1)
     L2 = L[1:2:2]
     assert typeof(L2) == "list object", typeof(L2)
-    t = (4,5,6)
+    t = (4,5,6,())
     assert typeof(t) == "tuple object", typeof(t)
     t1 = t[1:2]
     assert typeof(t1) == "tuple object", typeof(t1)
@@ -107,7 +109,7 @@ def indexing():
     assert typeof(L) == "list object", typeof(L)
     L1 = L[1]
     assert typeof(L1) == "Python object", typeof(L1)
-    t = (4,5,6)
+    t = (4,5,())
     assert typeof(t) == "tuple object", typeof(t)
     t1 = t[1]
     assert typeof(t1) == "long", typeof(t1)
@@ -385,7 +387,7 @@ def loop_over_struct_ptr():
     >>> print( loop_over_struct_ptr() )
     MyStruct
     """
-    cdef MyStruct a_list[10]
+    cdef MyStruct[10] a_list
     cdef MyStruct *a_ptr = a_list
     for i in a_list[:10]:
         pass
@@ -493,6 +495,32 @@ def safe_c_functions():
     f = cfunc
     assert typeof(f) == 'int (*)(int)', typeof(f)
     assert 2 == f(1)
+
+@infer_types(None)
+def ptr_types():
+    """
+    >>> ptr_types()
+    """
+    cdef int a
+    a_ptr = &a
+    assert typeof(a_ptr) == "int *", typeof(a_ptr)
+    a_ptr_ptr = &a_ptr
+    assert typeof(a_ptr_ptr) == "int **", typeof(a_ptr_ptr)
+    cdef int[1] b
+    b_ref = b
+    assert typeof(b_ref) == "int *", typeof(b_ref)
+    ptr = &a
+    ptr = b
+    assert typeof(ptr) == "int *", typeof(ptr)
+
+def const_types(const double x, double y, double& z):
+    """
+    >>> const_types(1, 1, 1)
+    """
+    a = x
+    a = y
+    a = z
+    assert typeof(a) == "double", typeof(a)
 
 @infer_types(None)
 def args_tuple_keywords(*args, **kwargs):
@@ -653,6 +681,29 @@ cdef enum MyEnum:
     enum_x = 1
     enum_y = 2
 
+ctypedef long my_long
+def test_int_typedef_inference():
+    """
+    >>> test_int_typedef_inference()
+    """
+    cdef long x = 1
+    cdef my_long y = 2
+    cdef long long z = 3
+    assert typeof(x + y) == typeof(y + x) == 'my_long', typeof(x + y)
+    assert typeof(y + z) == typeof(z + y) == 'long long', typeof(y + z)
+
+from libc.stdint cimport int32_t, int64_t
+def int64_long_sum():
+    cdef long x = 1
+    cdef int32_t x32 = 2
+    cdef int64_t x64 = 3
+    cdef unsigned long ux = 4
+    assert typeof(x + x32) == typeof(x32 + x) == 'long', typeof(x + x32)
+    assert typeof(x + x64) == typeof(x64 + x) == 'int64_t', typeof(x + x64)
+    # The correct answer here is either unsigned long or int64_t, depending on
+    # whether sizeof(long) == 64 or not.  Incorrect signedness is probably
+    # preferable to incorrect width.
+    assert typeof(ux + x64) == typeof(x64 + ux) == 'int64_t', typeof(ux + x64)
 
 cdef class InferInProperties:
     """

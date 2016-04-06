@@ -25,9 +25,9 @@ files to generate.  For example::
 
     $ cython -a yourmod.pyx
 
-This creates a ``yourmod.c`` file, and the -a switch produces a
-generated html file.  Pass the ``-h`` flag for a complete list of
-supported flags.
+This creates a ``yourmod.c`` file, and the ``-a`` switch produces an
+annotated html file of the source code.  Pass the ``-h`` flag for a
+complete list of supported flags.
 
 Compiling your ``.c`` files will vary depending on your operating
 system.  Python documentation for writing extension modules should
@@ -35,7 +35,7 @@ have some details for your system.  Here we give an example on a Linux
 system::
 
     $ gcc -shared -pthread -fPIC -fwrapv -O2 -Wall -fno-strict-aliasing \
-          -I/usr/include/python2.5 -o yourmod.so yourmod.c
+          -I/usr/include/python2.7 -o yourmod.so yourmod.c
 
 [``gcc`` will need to have paths to your included header files and
 paths to libraries you need to link with]
@@ -47,20 +47,20 @@ A ``yourmod.so`` file is now in the same directory and your module,
 Compiling with ``distutils``
 ============================
 
-First, make sure that ``distutils`` package is installed in your
-system.  It normally comes as part of the standard library.
-The following assumes a Cython file to be compiled called
-*hello.pyx*.  Now, create a ``setup.py`` script::
+The ``distutils`` package is part of the standard library.  It is the standard
+way of building Python packages, including native extension modules.  The
+following example configures the build for a Cython file called *hello.pyx*.
+First, create a ``setup.py`` script::
 
     from distutils.core import setup
     from Cython.Build import cythonize
 
     setup(
         name = "My hello app",
-        ext_modules = cythonize('hello.pyx'), # accepts a glob pattern
+        ext_modules = cythonize('hello.pyx'),  # accepts a glob pattern
     )
 
-Run the command ``python setup.py build_ext --inplace`` in your
+Now, run the command ``python setup.py build_ext --inplace`` in your
 system's command shell and you are done.  Import your new extension
 module into your python shell or script as normal.
 
@@ -87,6 +87,13 @@ Often, Python packages that offer a C-level API provide a way to find
 the necessary include files, e.g. for NumPy::
 
     include_path = [numpy.get_include()]
+
+Note for Numpy users.  Despite this, you will still get warnings like the
+following from the compiler, because Cython is using a deprecated Numpy API::
+
+   .../include/numpy/npy_1_7_deprecated_api.h:15:2: warning: #warning "Using deprecated NumPy API, disable it by " "#defining NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION" [-Wcpp]
+
+For the time being, it is just a warning that you can ignore.
 
 If you need to specify compiler options, libraries to link with or other
 linker options you will need to create ``Extension`` instances manually
@@ -266,6 +273,8 @@ running session.  Please check `Sage documentation
 You can tailor the behavior of the Cython compiler by specifying the
 directives below.
 
+.. _compiler-directives:
+
 Compiler directives
 ====================
 
@@ -288,6 +297,12 @@ Cython code.  Here is the list of currently supported directives:
     not supported. If set to False, Cython will neither check for nor
     correctly handle negative indices, possibly causing segfaults or
     data corruption.
+    Default is True.
+
+``initializedcheck`` (True / False)
+    If set to True, Cython checks that a memoryview is initialized
+    whenever its elements are accessed or assigned to. Setting this
+    to False disables these checks.
     Default is True.
 
 ``nonecheck``  (True / False)
@@ -323,13 +338,13 @@ Cython code.  Here is the list of currently supported directives:
     the operands have opposite signs) and raise a
     ``ZeroDivisionError`` when the right operand is 0. This has up to
     a 35% speed penalty. If set to True, no checks are performed.  See
-    `CEP 516 <http://wiki.cython.org/enhancements/division>`_.  Default
+    `CEP 516 <https://github.com/cython/cython/wiki/enhancements-division>`_.  Default
     is False.
 
 ``cdivision_warnings`` (True / False)
     If set to True, Cython will emit a runtime warning whenever
     division is performed with negative operands.  See `CEP 516
-    <http://wiki.cython.org/enhancements/division>`_.  Default is
+    <https://github.com/cython/cython/wiki/enhancements-division>`_.  Default is
     False.
 
 ``always_allow_keywords`` (True / False)
@@ -340,23 +355,21 @@ Cython code.  Here is the list of currently supported directives:
     calling conventions but disallow the use of keywords.
 
 ``profile`` (True / False)
-    Add hooks for Python profilers into the compiled C code.  Default
+    Write hooks for Python profilers into the compiled C code.  Default
     is False.
 
 ``linetrace`` (True / False)
-    Add line tracing hooks for Python profilers into the compiled C code.
-    This also enables profiling.  Default is False.  Note that the
-    generated module will not actually use line tracing, unless you
-    additionally pass the C macro definition ``CYTHON_TRACE=1`` to the
-    C compiler (e.g. using the distutils option ``define_macros``).
-
-    Note that this feature is currently EXPERIMENTAL.  It will slow down
-    your code, may not work at all for what you want to do with it, and
-    may even crash arbitrarily.
+    Write line tracing hooks for Python profilers or coverage reporting
+    into the compiled C code.  This also enables profiling.  Default is
+    False.  Note that the generated module will not actually use line
+    tracing, unless you additionally pass the C macro definition
+    ``CYTHON_TRACE=1`` to the C compiler (e.g. using the distutils option
+    ``define_macros``).  Define ``CYTHON_TRACE_NOGIL=1`` to also include
+    ``nogil`` functions and sections.
 
 ``infer_types`` (True / False)
     Infer types of untyped variables in function bodies. Default is
-    None, indicating that on safe (semantically-unchanging) inferences
+    None, indicating that only safe (semantically-unchanging) inferences
     are allowed.
 
 ``language_level`` (2/3)
@@ -387,6 +400,25 @@ Cython code.  Here is the list of currently supported directives:
 
 ``unraisable_tracebacks`` (True / False)
     Whether to print tracebacks when suppressing unraisable exceptions.
+
+
+Configurable optimisations
+--------------------------
+
+``optimize.use_switch`` (True / False)
+    Whether to expand chained if-else statements (including statements like
+    ``if x == 1 or x == 2:``) into C switch statements.  This can have performance
+    benefits if there are lots of values but cause compiler errors if there are any
+    duplicate values (which may not be detectable at Cython compile time for all
+    C constants).  Default is True.
+
+``optimize.unpack_method_calls`` (True / False)
+    Cython can generate code that optimistically checks for Python method objects
+    at call time and unpacks the underlying function to call it directly.  This
+    can substantially speed up method calls, especially for builtins, but may also
+    have a slight negative performance impact in some cases where the guess goes
+    completely wrong.
+    Disabling this option can also reduce the code size.  Default is True.
 
 
 How to set directives
@@ -433,3 +465,21 @@ statement, like this::
 .. Warning:: These two methods of setting directives are **not**
     affected by overriding the directive on the command-line using the
     -X option.
+
+In :file:`setup.py`
+:::::::::::::::::::
+
+Compiler directives can also be set in the :file:`setup.py` file by passing a keyword
+argument to ``cythonize``::
+
+    from distutils.core import setup
+    from Cython.Build import cythonize
+
+    setup(
+        name = "My hello app",
+        ext_modules = cythonize('hello.pyx', compiler_directives={'embedsignature': True}),
+    )
+
+This will override the default directives as specified in the ``compiler_directives`` dictionary.
+Note that explicit per-file or local directives as explained above take precedence over the
+values passed to ``cythonize``.

@@ -1,9 +1,21 @@
 cimport cython
 
+from libc.stdint cimport uint64_t
+
 class A:
     def pop(self, *args):
         print args
         return None
+
+cdef class B:
+    """
+    >>> B().call_pop()
+    'B'
+    """
+    cdef pop(self):
+        return "B"
+    def call_pop(self):
+        return self.pop()
 
 
 @cython.test_assert_path_exists('//PythonCapiCallNode')
@@ -199,3 +211,25 @@ def crazy_pop(L):
     (1, 2, 3)
     """
     return L.pop(1, 2, 3)
+
+
+def method_name():
+    """
+    >>> method_name()
+    'pop'
+    """
+    return [].pop.__name__
+
+
+def object_pop_large_int():
+    """
+    >>> object_pop_large_int()
+    {}
+    """
+    cdef object foo = {}
+    cdef uint64_t bar = 201213467776703617ULL
+
+    foo[bar] = None
+    assert (<object>bar) in foo
+    foo.pop(bar)
+    return foo

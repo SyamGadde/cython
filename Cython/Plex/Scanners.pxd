@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+
 import cython
 
 from Cython.Plex.Actions cimport Action
@@ -22,14 +24,14 @@ cdef class Scanner:
     cdef public list queue
     cdef public bint trace
     cdef public cur_char
-    cdef public int input_state
+    cdef public long input_state
 
     cdef public level
 
     @cython.locals(input_state=long)
     cdef next_char(self)
     @cython.locals(action=Action)
-    cdef tuple read(self)
+    cpdef tuple read(self)
     cdef tuple scan_a_token(self)
     cdef tuple position(self)
 

@@ -18,7 +18,8 @@ ctypedef fused_type1 *composed_t
 other_t = cython.fused_type(int, double)
 ctypedef double *p_double
 ctypedef int *p_int
-
+fused_type3 = cython.fused_type(int, double)
+fused_composite = cython.fused_type(fused_type2, fused_type3)
 
 def test_pure():
     """
@@ -94,10 +95,10 @@ def test_fused_with_pointer():
     breakfast
     humptydumptyfallsplatchbreakfast
     """
-    cdef int int_array[5]
-    cdef long long_array[5]
-    cdef float float_array[5]
-    cdef string_t string_array[5]
+    cdef int[5] int_array
+    cdef long[5] long_array
+    cdef float[5] float_array
+    cdef string_t[5] string_array
 
     cdef char *s
 
@@ -268,6 +269,12 @@ def get_array(itemsize, format):
     result[6] = 6.0
     return result
 
+def get_intc_array():
+    result = array((10,), sizeof(int), 'i')
+    result[5] = 5
+    result[6] = 6
+    return result
+
 def test_fused_memslice_dtype(cython.floating[:] array):
     """
     Note: the np.ndarray dtype test is in numpy_test
@@ -284,6 +291,40 @@ def test_fused_memslice_dtype(cython.floating[:] array):
     cdef cython.floating[:] otherarray = array[0:100:1]
     print cython.typeof(array), cython.typeof(otherarray), \
           array[5], otherarray[6]
+
+def test_fused_memslice_dtype_repeated(cython.floating[:] array1, cython.floating[:] array2):
+    """
+    Note: the np.ndarray dtype test is in numpy_test
+
+    >>> sorted(test_fused_memslice_dtype_repeated.__signatures__)
+    ['double', 'float']
+
+    >>> test_fused_memslice_dtype_repeated(get_array(8, 'd'), get_array(8, 'd'))
+    double[:] double[:]
+    >>> test_fused_memslice_dtype_repeated(get_array(4, 'f'), get_array(4, 'f'))
+    float[:] float[:]
+    >>> test_fused_memslice_dtype_repeated(get_array(8, 'd'), get_array(4, 'f'))
+    Traceback (most recent call last):
+    ValueError: Buffer dtype mismatch, expected 'double' but got 'float'
+    """
+    print cython.typeof(array1), cython.typeof(array2)
+
+def test_fused_memslice_dtype_repeated_2(cython.floating[:] array1, cython.floating[:] array2,
+                                         fused_type3[:] array3):
+    """
+    Note: the np.ndarray dtype test is in numpy_test
+
+    >>> sorted(test_fused_memslice_dtype_repeated_2.__signatures__)
+    ['double|double', 'double|int', 'float|double', 'float|int']
+
+    >>> test_fused_memslice_dtype_repeated_2(get_array(8, 'd'), get_array(8, 'd'), get_array(8, 'd'))
+    double[:] double[:] double[:]
+    >>> test_fused_memslice_dtype_repeated_2(get_array(8, 'd'), get_array(8, 'd'), get_intc_array())
+    double[:] double[:] int[:]
+    >>> test_fused_memslice_dtype_repeated_2(get_array(4, 'f'), get_array(4, 'f'), get_intc_array())
+    float[:] float[:] int[:]
+    """
+    print cython.typeof(array1), cython.typeof(array2), cython.typeof(array3)
 
 def test_cython_numeric(cython.numeric arg):
     """
@@ -309,3 +350,18 @@ def test_index_fused_args(cython.floating f, ints_t i):
     double int
     """
     _test_index_fused_args[cython.floating, ints_t](f, i)
+
+
+def test_composite(fused_composite x):
+    """
+    >>> print(test_composite(b'a').decode('ascii'))
+    a
+    >>> test_composite(3)
+    6
+    >>> test_composite(3.0)
+    6.0
+    """
+    if fused_composite is string_t:
+        return x
+    else:
+        return 2 * x

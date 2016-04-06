@@ -122,7 +122,7 @@ file should be built like Python was built. Python documentation for writing
 extensions should have some details. On Linux this often means something
 like::
 
-    $ gcc -shared -pthread -fPIC -fwrapv -O2 -Wall -fno-strict-aliasing -I/usr/include/python2.5 -o yourmod.so yourmod.c
+    $ gcc -shared -pthread -fPIC -fwrapv -O2 -Wall -fno-strict-aliasing -I/usr/include/python2.7 -o yourmod.so yourmod.c
 
 ``gcc`` should have access to the NumPy C header files so if they are not
 installed at :file:`/usr/include/numpy` or similar you may need to pass another
@@ -263,7 +263,7 @@ compatibility. Here's :file:`convolve2.pyx`. *Read the comments!*  ::
             raise ValueError("Only odd dimensions on filter supported")
         assert f.dtype == DTYPE and g.dtype == DTYPE
         # The "cdef" keyword is also used within functions to type variables. It
-        # can only be used at the top indendation level (there are non-trivial
+        # can only be used at the top indentation level (there are non-trivial
         # problems with allowing them in other places, though we'd love to see
         # good and thought out proposals for it).
         #
@@ -385,7 +385,7 @@ The array lookups are still slowed down by two factors:
 Now bounds checking is not performed (and, as a side-effect, if you ''do''
 happen to access out of bounds you will in the best case crash your program
 and in the worst case corrupt data). It is possible to switch bounds-checking
-mode in many ways, see [:docs/compilerdirectives:compiler directives] for more
+mode in many ways, see :ref:`compiler-directives` for more
 information.
 
 Negative indices are dealt with by ensuring Cython that the indices will be
@@ -463,7 +463,7 @@ if someone is interested also under Python 2.x.
 
 There is some speed penalty to this though (as one makes more assumptions
 compile-time if the type is set to :obj:`np.ndarray`, specifically it is
-assumed that the data is stored in pure strided more and not in indirect
+assumed that the data is stored in pure strided mode and not in indirect
 mode).
 
 [:enhancements/buffer:More information]

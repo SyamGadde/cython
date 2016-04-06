@@ -38,7 +38,7 @@ from the cProfile module. This means you can just profile your Cython code
 together with your Python code using the same tools as for Python code alone. 
 
 Disabling profiling function wise
-------------------------------------------
+---------------------------------
 
 If your profiling is messed up because of the call overhead to some small
 functions that you rather do not want to see in your profile - either because
@@ -51,6 +51,58 @@ function only::
    @cython.profile(False)
    def my_often_called_function():
       pass
+
+
+Enabling line tracing
+---------------------
+
+To get more detailed trace information (for tools that can make use of it),
+you can enable line tracing::
+
+   # cython: linetrace=True
+
+This will also enable profiling support, so the above ``profile=True`` option
+is not needed.  Line tracing is needed for coverage analysis, for example.
+
+Note that even if line tracing is enabled via the compiler directive, it is
+not used by default.  As the runtime slowdown can be substantial, it must
+additionally be compiled in by the C compiler by setting the C macro definition
+``CYTHON_TRACE=1``.  To include nogil functions in the trace, set
+``CYTHON_TRACE_NOGIL=1`` (which implies ``CYTHON_TRACE=1``).  C macros can be
+defined either in the extension definition of the ``setup.py`` script or by
+setting the respective distutils options in the source file with the following
+file header comment (if ``cythonize()`` is used for compilation)::
+
+   # distutils: define_macros=CYTHON_TRACE_NOGIL=1
+
+
+Enabling coverage analysis
+--------------------------
+
+Since Cython 0.23, line tracing (see above) also enables support for coverage
+reporting with the `coverage.py <http://nedbatchelder.com/code/coverage/>`_ tool.
+To make the coverage analysis understand Cython modules, you also need to enable
+Cython's coverage plugin in your ``.coveragerc`` file as follows:
+
+.. code-block:: ini
+
+   [run]
+   plugins = Cython.Coverage
+
+With this plugin, your Cython source files should show up normally in the
+coverage reports.
+
+To include the coverage report in the Cython annotated HTML file, you need
+to first run the coverage.py tool to generate an XML result file.  Pass
+this file into the ``cython`` command as follows:
+
+.. code-block:: bash
+
+   $ cython  --annotate-coverage coverage.xml  package/mymodule.pyx
+
+This will recompile the Cython module and generate one HTML output
+file next to each Cython source file it processes, containing colour
+markers for lines that were contained in the coverage report.
 
 
 .. _profiling_tutorial:
@@ -112,7 +164,7 @@ write a short script to profile our code::
 
 Running this on my box gives the following output::
 
-   TODO: how to display this not as code but verbatimly? 
+   TODO: how to display this not as code but verbatim?
 
    Sat Nov  7 17:40:54 2009    Profile.prof
 

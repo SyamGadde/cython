@@ -26,7 +26,7 @@ platform for generating an extension module. For these options look at the
 official Python documentation.
 
 The other, and probably better, way is to use the :mod:`distutils` extension
-provided with Cython. The benifit of this method is that it will give the
+provided with Cython. The benefit of this method is that it will give the
 platform specific compilation options, acting like a stripped down autotools.
 
 
@@ -68,7 +68,7 @@ explicitly, you can use glob patterns::
 You can also use glob patterns in :class:`Extension` objects if you pass
 them through :func:`cythonize`::
 
-    extensions = [Extension("*", "*.pyx")]
+    extensions = [Extension("*", ["*.pyx"])]
 
     setup(
         ext_modules = cythonize(extensions)
@@ -86,8 +86,8 @@ Pyximport
 Cython is a compiler. Therefore it is natural that people tend to go
 through an edit/compile/test cycle with Cython modules. But my personal
 opinion is that one of the deep insights in Python's implementation is
-that a language can be compiled (Python modules are compiled to ``.pyc``)
-files and hide that compilation process from the end-user so that they
+that a language can be compiled (Python modules are compiled to ``.pyc``
+files) and hide that compilation process from the end-user so that they
 do not have to worry about it. Pyximport does this for Cython modules.
 For instance if you write a Cython module called :file:`foo.pyx`, with
 Pyximport you can import it in a regular Python module like this::

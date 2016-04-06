@@ -25,8 +25,8 @@ cdef extern from "numpy/npy_math.h" nogil:
     long double NZERO "NPY_NZERO"        # negative zero
 
     # These four are actually macros and work on any floating-point type.
+    int isinf "npy_isinf"(long double)  # -1 / 0 / 1
     bint isfinite "npy_isfinite"(long double)
-    bint isinf "npy_isinf"(long double)
     bint isnan "npy_isnan"(long double)
     bint signbit "npy_signbit"(long double)
 
@@ -119,15 +119,15 @@ cdef extern from "numpy/npy_math.h" nogil:
     # NumPy extensions
     float deg2radf "npy_deg2radf"(float x)
     float rad2degf "npy_rad2degf"(float x)
-    float logaddexpf "npy_logaddexpf"(float x)
-    float logaddexp2f "npy_logaddexp2f"(float x)
+    float logaddexpf "npy_logaddexpf"(float x, float y)
+    float logaddexp2f "npy_logaddexp2f"(float x, float y)
 
     double deg2rad "npy_deg2rad"(double x)
     double rad2deg "npy_rad2deg"(double x)
-    double logaddexp "npy_logaddexp"(double x)
-    double logaddexp2 "npy_logaddexp2"(double x)
+    double logaddexp "npy_logaddexp"(double x, double y)
+    double logaddexp2 "npy_logaddexp2"(double x, double y)
 
     long double deg2radl "npy_deg2radl"(long double x)
     long double rad2degl "npy_rad2degl"(long double x)
-    long double logaddexpl "npy_logaddexpl"(long double x)
-    long double logaddexp2l "npy_logaddexp2l"(long double x)
+    long double logaddexpl "npy_logaddexpl"(long double x, long double y)
+    long double logaddexp2l "npy_logaddexp2l"(long double x, long double y)

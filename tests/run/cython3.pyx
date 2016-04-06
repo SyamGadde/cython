@@ -1,4 +1,4 @@
-# cython: language_level=3
+# cython: language_level=3, binding=True
 # mode: run
 # tag: generators, python3, exceptions
 
@@ -25,6 +25,39 @@ if sys.version_info[0] >= 3:
 def locals_function(a, b=2):
     x = 'abc'
     return locals()
+
+
+### true division
+
+def truediv(x):
+    """
+    >>> truediv(4)
+    2.0
+    >>> truediv(3)
+    1.5
+    """
+    return x / 2
+
+
+def truediv_int(int x):
+    """
+    >>> truediv_int(4)
+    2.0
+    >>> truediv_int(3)
+    1.5
+    """
+    return x / 2
+
+
+@cython.cdivision(True)
+def cdiv_int(int x):
+    """
+    >>> cdiv_int(4)
+    2
+    >>> cdiv_int(3)
+    1
+    """
+    return x / 2
 
 
 ### module level except-as tests
@@ -437,11 +470,24 @@ def int_literals():
     print(cython.typeof(1UL))
     print(cython.typeof(10000000000000UL))
 
-def annotation_syntax(a : "test", b : "other" = 2) -> "ret":
+def annotation_syntax(a: "test new test", b : "other" = 2, *args: "ARGS", **kwargs: "KWARGS") -> "ret":
     """
     >>> annotation_syntax(1)
     3
     >>> annotation_syntax(1,3)
     4
+
+    >>> len(annotation_syntax.__annotations__)
+    5
+    >>> print(annotation_syntax.__annotations__['a'])
+    test new test
+    >>> print(annotation_syntax.__annotations__['b'])
+    other
+    >>> print(annotation_syntax.__annotations__['args'])
+    ARGS
+    >>> print(annotation_syntax.__annotations__['kwargs'])
+    KWARGS
+    >>> print(annotation_syntax.__annotations__['return'])
+    ret
     """
     return a+b

@@ -2,14 +2,23 @@
 #   Errors
 #
 
+from __future__ import absolute_import
+
+try:
+    from __builtin__ import basestring as any_string_type
+except ImportError:
+    any_string_type = (bytes, str)
+
 import sys
-from Cython.Utils import open_new_file
-import DebugFlags
-import Options
+
+from ..Utils import open_new_file
+from . import DebugFlags
+from . import Options
 
 
 class PyrexError(Exception):
     pass
+
 
 class PyrexWarning(Exception):
     pass
@@ -17,7 +26,7 @@ class PyrexWarning(Exception):
 
 def context(position):
     source = position[0]
-    assert not (isinstance(source, unicode) or isinstance(source, str)), (
+    assert not (isinstance(source, any_string_type)), (
         "Please replace filename strings with Scanning.FileSourceDescriptor instances %r" % source)
     try:
         F = source.get_lines()
@@ -157,12 +166,13 @@ def report_error(err):
             try: echo_file.write(line)
             except UnicodeEncodeError:
                 echo_file.write(line.encode('ASCII', 'replace'))
-        num_errors = num_errors + 1
+        num_errors += 1
         if Options.fast_fail:
             raise AbortError("fatal errors")
 
+
 def error(position, message):
-    #print "Errors.error:", repr(position), repr(message) ###
+    #print("Errors.error:", repr(position), repr(message)) ###
     if position is None:
         raise InternalError(message)
     err = CompileError(position, message)
@@ -170,7 +180,9 @@ def error(position, message):
     report_error(err)
     return err
 
-LEVEL=1 # warn about all errors level 1 or higher
+
+LEVEL = 1 # warn about all errors level 1 or higher
+
 
 def message(position, message, level=1):
     if level < LEVEL:
@@ -182,6 +194,7 @@ def message(position, message, level=1):
     if echo_file:
         echo_file.write(line)
     return warn
+
 
 def warning(position, message, level=0):
     if level < LEVEL:
@@ -195,6 +208,7 @@ def warning(position, message, level=0):
     if echo_file:
         echo_file.write(line)
     return warn
+
 
 _warn_once_seen = {}
 def warn_once(position, message, level=0):

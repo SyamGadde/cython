@@ -4,7 +4,7 @@
 #################### string.from_py ####################
 
 cdef extern from *:
-    cdef cppclass string "std::string":
+    cdef cppclass string "{{type}}":
         string()
         string(char* c_str, size_t size)
     cdef char* __Pyx_PyObject_AsStringAndSize(object, Py_ssize_t*) except NULL
@@ -21,14 +21,18 @@ cdef string {{cname}}(object o) except *:
 #cimport cython
 #from libcpp.string cimport string
 cdef extern from *:
-    cdef cppclass string "const std::string":
+    cdef cppclass string "{{type}}":
         char* data()
         size_t size()
-    cdef object __Pyx_PyObject_FromStringAndSize(char*, size_t)
 
-@cname("{{cname}}")
-cdef object {{cname}}(string& s):
-    return __Pyx_PyObject_FromStringAndSize(s.data(), s.size())
+{{for py_type in ['PyObject', 'PyUnicode', 'PyStr', 'PyBytes', 'PyByteArray']}}
+cdef extern from *:
+    cdef object __Pyx_{{py_type}}_FromStringAndSize(char*, size_t)
+
+@cname("{{cname.replace("PyObject", py_type, 1)}}")
+cdef inline object {{cname.replace("PyObject", py_type, 1)}}(const string& s):
+    return __Pyx_{{py_type}}_FromStringAndSize(s.data(), s.size())
+{{endfor}}
 
 
 #################### vector.from_py ####################
@@ -91,11 +95,9 @@ cdef extern from *:
             bint operator!=(const_iterator)
         const_iterator begin()
         const_iterator end()
-    cdef cppclass const_cpp_list "const std::list" [T] (cpp_list):
-        pass
 
 @cname("{{cname}}")
-cdef object {{cname}}(const_cpp_list[X]& v):
+cdef object {{cname}}(const cpp_list[X]& v):
     o = []
     cdef cpp_list[X].const_iterator iter = v.begin()
     while iter != v.end():
@@ -134,11 +136,9 @@ cdef extern from *:
             bint operator!=(const_iterator)
         const_iterator begin()
         const_iterator end()
-    cdef cppclass const_cpp_set "const std::{{maybe_unordered}}set" [T](cpp_set):
-        pass
 
 @cname("{{cname}}")
-cdef object {{cname}}(const_cpp_set[X]& s):
+cdef object {{cname}}(const cpp_set[X]& s):
     o = set()
     cdef cpp_set[X].const_iterator iter = s.begin()
     while iter != s.end():
@@ -166,12 +166,12 @@ cdef pair[X,Y] {{cname}}(object o) except *:
 {{template_type_declarations}}
 
 cdef extern from *:
-    cdef cppclass pair "const std::pair" [T, U]:
+    cdef cppclass pair "std::pair" [T, U]:
         T first
         U second
 
 @cname("{{cname}}")
-cdef object {{cname}}(pair[X,Y]& p):
+cdef object {{cname}}(const pair[X,Y]& p):
     return X_to_py(p.first), Y_to_py(p.second)
 
 
@@ -184,9 +184,6 @@ cdef extern from *:
         pair(T&, U&)
     cdef cppclass map "std::{{maybe_unordered}}map" [T, U]:
         void insert(pair[T, U]&)
-
-    cdef cppclass pair "std::pair" [T, U]:
-        pass
     cdef cppclass vector "std::vector" [T]:
         pass
 
@@ -213,18 +210,18 @@ cdef extern from *:
         cppclass value_type:
             T first
             U second
-        cppclass iterator:
+        cppclass const_iterator:
             value_type& operator*()
-            iterator operator++()
-            bint operator!=(iterator)
-        iterator begin()
-        iterator end()
+            const_iterator operator++()
+            bint operator!=(const_iterator)
+        const_iterator begin()
+        const_iterator end()
 
 @cname("{{cname}}")
-cdef object {{cname}}(map[X,Y] s):
+cdef object {{cname}}(const map[X,Y]& s):
     o = {}
-    cdef map[X,Y].value_type *key_value
-    cdef map[X,Y].iterator iter = s.begin()
+    cdef const map[X,Y].value_type *key_value
+    cdef map[X,Y].const_iterator iter = s.begin()
     while iter != s.end():
         key_value = &cython.operator.dereference(iter)
         o[X_to_py(key_value.first)] = Y_to_py(key_value.second)

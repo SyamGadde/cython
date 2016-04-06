@@ -3,7 +3,7 @@
 # If any of the PyArray_* functions are called, import_array must be
 # called first.
 #
-# This also defines backwards-compatability buffer acquisition
+# This also defines backwards-compatibility buffer acquisition
 # code for use in Python 2.x (or Python <= 2.5 when NumPy starts
 # implementing PEP-3118 directly).
 #
@@ -154,12 +154,15 @@ cdef extern from "numpy/arrayobject.h":
 
     ctypedef class numpy.dtype [object PyArray_Descr]:
         # Use PyDataType_* macros when possible, however there are no macros
-        # for accessing some of the fields, so some are defined. Please
-        # ask on cython-dev if you need more.
+        # for accessing some of the fields, so some are defined.
+        cdef char kind
+        cdef char type
+        cdef char byteorder
+        cdef char flags
         cdef int type_num
         cdef int itemsize "elsize"
-        cdef char byteorder
-        cdef object fields
+        cdef int alignment
+        cdef dict fields
         cdef tuple names
 
     ctypedef extern class numpy.flatiter [object PyArrayIterObject]:
@@ -238,7 +241,6 @@ cdef extern from "numpy/arrayobject.h":
             cdef int t
             cdef char* f = NULL
             cdef dtype descr = self.descr
-            cdef list stack
             cdef int offset
 
             cdef bint hasfields = PyDataType_HASFIELDS(descr)
@@ -785,8 +787,6 @@ cdef inline char* _util_dtypestring(dtype descr, char* f, char* end, int* offset
     # string. The new location in the format string is returned.
 
     cdef dtype child
-    cdef int delta_offset
-    cdef tuple i
     cdef int endian_detector = 1
     cdef bint little_endian = ((<char*>&endian_detector)[0] != 0)
     cdef tuple fields

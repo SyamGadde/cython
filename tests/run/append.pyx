@@ -8,6 +8,16 @@ class B(list):
         for arg in args:
             list.append(self, arg)
 
+cdef class C:
+    """
+    >>> c = C(100)
+    appending 100
+    """
+    def __init__(self, value):
+        self.append(value)
+    cdef append(self, value):
+        print u"appending", value
+        return value
 
 def test_append(L):
     """
@@ -42,6 +52,19 @@ def test_append(L):
     return L
 
 
+def test_append_typed(list L not None):
+    """
+    >>> test_append_typed([])
+    None
+    None
+    [1, 2, (3, 4)]
+    """
+    print L.append(1)
+    L.append(2)
+    print L.append((3,4))
+    return L
+
+
 def append_unused_retval(L):
     """
     >>> append_unused_retval([])
@@ -63,3 +86,11 @@ def append_unused_retval(L):
     except TypeError:
         print u"got error"
     return L
+
+
+def method_name():
+    """
+    >>> method_name()
+    'append'
+    """
+    return [].append.__name__

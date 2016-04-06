@@ -2,26 +2,655 @@
 Cython Changelog
 ================
 
-=======
-Latest
-=======
+0.24 (2016-04-04)
+=================
 
 Features added
 --------------
 
+* PEP 498: Literal String Formatting (f-strings).
+  Original patch by Jelle Zijlstra.
+  https://www.python.org/dev/peps/pep-0498/
+
+* PEP 515: Underscores as visual separators in number literals.
+  https://www.python.org/dev/peps/pep-0515/
+
+* Parser was adapted to some minor syntax changes in Py3.6, e.g.
+  https://bugs.python.org/issue9232
+
+* The embedded C code comments that show the original source code
+  can be discarded with the new directive ``emit_code_comments=False``.
+
+* Cpdef enums are now first-class iterable, callable types in Python.
+
+* Ctuples can now be declared in pure Python code.
+
+* Posix declarations for DLL loading and stdio extensions were added.
+  Patch by Lars Buitinck.
+
+* The Py2-only builtins ``unicode()``, ``xrange()``, ``reduce()`` and
+  ``long`` are now also available in compile time ``DEF`` expressions
+  when compiling with Py3.
+
+* Exception type tests have slightly lower overhead.
+  This fixes ticket 868.
+
+* @property syntax fully supported in cdef classes, old syntax deprecated.
+
+* C++ classes can now be declared with default template parameters.
+
 Bugs fixed
 ----------
 
-* Syntax highlighting in ``cython-mode.el`` for Emacs no longer
-  incorrectly highlights keywords found as part of longer names.
+* C++ exceptions raised by overloaded C++ operators were not always
+  handled.  Patch by Ian Henriksen.
+
+* C string literals were previously always stored as non-const global
+  variables in the module.  They are now stored as global constants
+  when possible, and otherwise as non-const C string literals in the
+  generated code that uses them.  This improves compatibility with
+  strict C compiler options and prevents non-const strings literals
+  with the same content from being incorrectly merged.
+
+* Compile time evaluated ``str`` expressions (``DEF``) now behave in a
+  more useful way by turning into Unicode strings when compiling under
+  Python 3.  This allows using them as intermediate values in expressions.
+  Previously, they always evaluated to bytes objects.
+
+* ``isinf()`` declarations in ``libc/math.pxd`` and ``numpy/math.pxd`` now
+  reflect the actual tristate ``int`` return value instead of using ``bint``.
+
+* Literal assignments to ctuples avoid Python tuple round-trips in some
+  more corner cases.
+
+* Iteration over ``dict(...).items()`` failed to get optimised when dict
+  arguments included keyword arguments.
+
+* cProfile now correctly profiles cpdef functions and methods.
+
+
+0.23.5 (2016-03-26)
+===================
+
+* Compile errors and warnings in integer type conversion code.  This fixes
+  ticket 877.  Patches by Christian Neukirchen, Nikolaus Rath, Ian Henriksen.
+
+* Reference leak when "*args" argument was reassigned in closures.
+
+* Truth-testing Unicode strings could waste time and memory in Py3.3+.
+
+* Return values of async functions could be ignored and replaced by ``None``.
+
+* Compiler crash in CPython 3.6.
+
+* Fix prange() to behave identically to range().  The end condition was
+  miscalculated when the range was not exactly divisible by the step.
+
+* Optimised ``all(genexpr)``/``any(genexpr)`` calls could warn about unused
+  code.  This fixes ticket 876.
+
+
+0.23.4 (2015-10-10)
+===================
+
+Bugs fixed
+----------
+
+* Memory leak when calling Python functions in PyPy.
+
+* Compilation problem with MSVC in C99-ish mode.
+
+* Warning about unused values in a helper macro.
+
+
+0.23.3 (2015-09-29)
+===================
+
+Bugs fixed
+----------
+
+* Invalid C code for some builtin methods.  This fixes ticket 856 again.
+
+* Incorrect C code in helper functions for PyLong conversion and string
+  decoding.  This fixes ticket 863, ticket 864 and ticket 865.
+  Original patch by Nikolaus Rath.
+
+* Large folded or inserted integer constants could use too small C
+  integer types and thus trigger a value wrap-around.
 
 Other changes
 -------------
 
+* The coroutine and generator types of Cython now also register directly
+  with the ``Coroutine`` and ``Generator`` ABCs in the ``backports_abc``
+  module if it can be imported.  This fixes ticket 870.
+
+
+0.23.2 (2015-09-11)
+===================
+
+Bugs fixed
+----------
+
+* Compiler crash when analysing some optimised expressions.
+
+* Coverage plugin was adapted to coverage.py 4.0 beta 2.
+
+* C++ destructor calls could fail when '&' operator is overwritten.
+
+* Incorrect C literal generation for large integers in compile-time
+  evaluated DEF expressions and constant folded expressions.
+
+* Byte string constants could end up as Unicode strings when originating
+  from compile-time evaluated DEF expressions.
+
+* Invalid C code when caching known builtin methods.
+  This fixes ticket 860.
+
+* ``ino_t`` in ``posix.types`` was not declared as ``unsigned``.
+
+* Declarations in ``libcpp/memory.pxd`` were missing ``operator!()``.
+  Patch by Leo Razoumov.
+
+* Static cdef methods can now be declared in .pxd files.
+
+
+0.23.1 (2015-08-22)
+===================
+
+Bugs fixed
+----------
+
+* Invalid C code for generators.  This fixes ticket 858.
+
+* Invalid C code for some builtin methods.  This fixes ticket 856.
+
+* Invalid C code for unused local buffer variables.
+  This fixes ticket 154.
+
+* Test failures on 32bit systems.  This fixes ticket 857.
+
+* Code that uses ``from xyz import *`` and global C struct/union/array
+  variables could fail to compile due to missing helper functions.
+  This fixes ticket 851.
+
+* Misnamed PEP 492 coroutine property ``cr_yieldfrom`` renamed to
+  ``cr_await`` to match CPython.
+
+* Missing deallocation code for C++ object attributes in certain
+  extension class hierarchies.
+
+* Crash when async coroutine was not awaited.
+
+* Compiler crash on ``yield`` in signature annotations and default
+  argument values.  Both are forbidden now.
+
+* Compiler crash on certain constructs in ``finally`` clauses.
+
+* Cython failed to build when CPython's pgen is installed.
+
+
+0.23 (2015-08-08)
+=================
+
+Features added
+--------------
+
+* PEP 492 (async/await) was implemented.
+  See https://www.python.org/dev/peps/pep-0492/
+
+* PEP 448 (Additional Unpacking Generalizations) was implemented.
+  See https://www.python.org/dev/peps/pep-0448/
+
+* Support for coverage.py 4.0+ can be enabled by adding the plugin
+  "Cython.Coverage" to the ".coveragerc" config file.
+
+* Annotated HTML source pages can integrate (XML) coverage reports.
+
+* Tracing is supported in ``nogil`` functions/sections and module init code.
+
+* When generators are used in a Cython module and the module imports the
+  modules "inspect" and/or "asyncio", Cython enables interoperability by
+  patching these modules during the import to recognise Cython's internal
+  generator and coroutine types. This can be disabled by C compiling the
+  module with "-D CYTHON_PATCH_ASYNCIO=0" or "-D CYTHON_PATCH_INSPECT=0"
+
+* When generators or coroutines are used in a Cython module, their types
+  are registered with the ``Generator`` and ``Coroutine`` ABCs in the
+  ``collections`` or ``collections.abc`` stdlib module at import time to
+  enable interoperability with code that needs to detect and process Python
+  generators/coroutines.  These ABCs were added in CPython 3.5 and are
+  available for older Python versions through the ``backports_abc`` module
+  on PyPI.  See https://bugs.python.org/issue24018
+
+* Adding/subtracting/dividing/modulus and equality comparisons with
+  constant Python floats and small integers are faster.
+
+* Binary and/or/xor/rshift operations with small constant Python integers
+  are faster.
+
+* When called on generator expressions, the builtins ``all()``, ``any()``,
+  ``dict()``, ``list()``, ``set()``, ``sorted()`` and ``unicode.join()``
+  avoid the generator iteration overhead by inlining a part of their
+  functionality into the for-loop.
+
+* Keyword argument dicts are no longer copied on function entry when they
+  are not being used or only passed through to other function calls (e.g.
+  in wrapper functions).
+
+* The ``PyTypeObject`` declaration in ``cpython.object`` was extended.
+
+* The builtin ``type`` type is now declared as PyTypeObject in source,
+  allowing for extern functions taking type parameters to have the correct
+  C signatures.  Note that this might break code that uses ``type`` just
+  for passing around Python types in typed variables.  Removing the type
+  declaration provides a backwards compatible fix.
+
+* ``wraparound()`` and ``boundscheck()`` are available as no-ops in pure
+  Python mode.
+
+* Const iterators were added to the provided C++ STL declarations.
+
+* Smart pointers were added to the provided C++ STL declarations.
+  Patch by Daniel Filonik.
+
+* ``NULL`` is allowed as default argument when embedding signatures.
+  This fixes ticket 843.
+
+* When compiling with ``--embed``, the internal module name is changed to
+  ``__main__`` to allow arbitrary program names, including those that would
+  be invalid for modules.  Note that this prevents reuse of the generated
+  C code as an importable module.
+
+* External C++ classes that overload the assignment operator can be used.
+  Patch by Ian Henriksen.
+
+* Support operator bool() for C++ classes so they can be used in if statements.
+
+Bugs fixed
+----------
+
+* Calling "yield from" from Python on a Cython generator that returned a
+  value triggered a crash in CPython.  This is now being worked around.
+  See https://bugs.python.org/issue23996
+
+* Language level 3 did not enable true division (a.k.a. float division)
+  for integer operands.
+
+* Functions with fused argument types that included a generic 'object'
+  fallback could end up using that fallback also for other explicitly
+  listed object types.
+
+* Relative cimports could accidentally fall back to trying an absolute
+  cimport on failure.
+
+* The result of calling a C struct constructor no longer requires an
+  intermediate assignment when coercing to a Python dict.
+
+* C++ exception declarations with mapping functions could fail to compile
+  when pre-declared in .pxd files.
+
+* ``cpdef void`` methods are now permitted.
+
+* ``abs(cint)`` could fail to compile in MSVC and used sub-optimal code
+  in C++.  Patch by David Vierra, original patch by Michael Enßlin.
+
+* Buffer index calculations using index variables with small C integer
+  types could overflow for large buffer sizes.
+  Original patch by David Vierra.
+
+* C unions use a saner way to coerce from and to Python dicts.
+
+* When compiling a module ``foo.pyx``, the directories in ``sys.path``
+  are no longer searched when looking for ``foo.pxd``.
+  Patch by Jeroen Demeyer.
+
+* Memory leaks in the embedding main function were fixed.
+  Original patch by Michael Enßlin.
+
+* Some complex Python expressions could fail to compile inside of finally
+  clauses.
+
+* Unprefixed 'str' literals were not supported as C varargs arguments.
+
+* Fixed type errors in conversion enum types to/from Python.  Note that
+  this imposes stricter correctness requirements on enum declarations.
+
+
+Other changes
+-------------
+
+* Changed mangling scheme in header files generated by ``cdef api``
+  declarations.
+
+* Installation under CPython 3.3+ no longer requires a pass of the
+  2to3 tool.  This also makes it possible to run Cython in Python
+  3.3+ from a source checkout without installing it first.
+  Patch by Petr Viktorin.
+
+* ``jedi-typer.py`` (in ``Tools/``) was extended and renamed to
+  ``jedityper.py`` (to make it importable) and now works with and
+  requires Jedi 0.9.  Patch by Tzer-jen Wei.
+
+
+0.22.1 (2015-06-20)
+===================
+
+Bugs fixed
+----------
+
+* Crash when returning values on generator termination.
+
+* In some cases, exceptions raised during internal isinstance() checks were
+  not propagated.
+
+* Runtime reported file paths of source files (e.g for profiling and tracing)
+  are now relative to the build root directory instead of the main source file.
+
+* Tracing exception handling code could enter the trace function with an active
+  exception set.
+
+* The internal generator function type was not shared across modules.
+
+* Comparisons of (inferred) ctuples failed to compile.
+
+* Closures inside of cdef functions returning ``void`` failed to compile.
+
+* Using ``const`` C++ references in intermediate parts of longer expressions
+  could fail to compile.
+
+* C++ exception declarations with mapping functions could fail to compile when
+  pre-declared in .pxd files.
+
+* C++ compilation could fail with an ambiguity error in recent MacOS-X Xcode
+  versions.
+
+* C compilation could fail in pypy3.
+
+* Fixed a memory leak in the compiler when compiling multiple modules.
+
+* When compiling multiple modules, external library dependencies could leak
+  into later compiler runs.  Fix by Jeroen Demeyer.  This fixes ticket 845.
+
+
+0.22 (2015-02-11)
+=================
+
+Features added
+--------------
+
+* C functions can coerce to Python functions, which allows passing them
+  around as callable objects.
+
+* C arrays can be assigned by value and auto-coerce from Python iterables
+  and to Python lists (and tuples).
+
+* Extern C functions can now be declared as cpdef to export them to
+  the module's Python namespace.  Extern C functions in pxd files export
+  their values to their own module, iff it exists.
+
+* Anonymous C tuple types can be declared as (ctype1, ctype2, ...).
+
+* PEP 479: turn accidental StopIteration exceptions that exit generators
+  into a RuntimeError, activated with future import "generator_stop".
+  See https://www.python.org/dev/peps/pep-0479/
+
+* Looping over ``reversed(range())`` is optimised in the same way as
+  ``range()``.  Patch by Favian Contreras.
+
+Bugs fixed
+----------
+
+* Mismatching 'except' declarations on signatures in .pxd and .pyx files failed
+  to produce a compile error.
+
+* Failure to find any files for the path pattern(s) passed into ``cythonize()``
+  is now an error to more easily detect accidental typos.
+
+* The ``logaddexp`` family of functions in ``numpy.math`` now has correct
+  declarations.
+
+* In Py2.6/7 and Py3.2, simple Cython memory views could accidentally be
+  interpreted as non-contiguous by CPython, which could trigger a CPython
+  bug when copying data from them, thus leading to data corruption.
+  See CPython issues 12834 and 23349.
+
+Other changes
+-------------
+
+* Preliminary support for defining the Cython language with a formal grammar.
+  To try parsing your files against this grammar, use the --formal_grammar directive.
+  Experimental.
+
+* ``_`` is no longer considered a cacheable builtin as it could interfere with
+  gettext.
+
+* Cythonize-computed metadata now cached in the generated C files.
+
+* Several corrections and extensions in numpy, cpython, and libcpp pxd files.
+
+
+0.21.2 (2014-12-27)
+===================
+
+Bugs fixed
+----------
+
+* Crash when assigning a C value to both a Python and C target at the same time.
+
+* Automatic coercion from C++ strings to ``str`` generated incomplete code that
+  failed to compile.
+
+* Declaring a constructor in a C++ child class erroneously required a default
+  constructor declaration in the super class.
+
+* ``resize_smart()`` in ``cpython.array`` was broken.
+
+* Functions in ``libcpp.cast`` are now declared as ``nogil``.
+
+* Some missing C-API declarations were added.
+
+* Py3 main code in embedding program code was lacking casts.
+
+* Exception related to distutils "Distribution" class type in pyximport under
+  latest CPython 2.7 and 3.4 releases when setuptools is being imported later.
+
+
+0.21.1 (2014-10-18)
+===================
+
+Features added
+--------------
+
+* New ``cythonize`` option ``-a`` to generate the annotated HTML source view.
+
+* Missing C-API declarations in ``cpython.unicode`` were added.
+
+* Passing ``language='c++'`` into cythonize() globally enables C++ mode for
+  all modules that were not passed as Extension objects (i.e. only source
+  files and file patterns).
+
+* ``Py_hash_t`` is a known type (used in CPython for hash values).
+
+* ``PySlice_*()`` C-API functions are available from the ``cpython.slice``
+  module.
+
+* Allow arrays of C++ classes.
+
+Bugs fixed
+----------
+
+* Reference leak for non-simple Python expressions in boolean and/or expressions.
+
+* To fix a name collision and to reflect availability on host platforms,
+  standard C declarations [ clock(), time(), struct tm and tm* functions ]
+  were moved from posix/time.pxd to a new libc/time.pxd.  Patch by Charles
+  Blake.
+
+* Rerunning unmodified modules in IPython's cython support failed.
+  Patch by Matthias Bussonier.
+
+* Casting C++ ``std::string`` to Python byte strings failed when
+  auto-decoding was enabled.
+
+* Fatal exceptions in global module init code could lead to crashes
+  if the already created module was used later on (e.g. through a
+  stale reference in sys.modules or elsewhere).
+
+* ``cythonize.py`` script was not installed on MS-Windows.
+
+Other changes
+-------------
+
+* Compilation no longer fails hard when unknown compilation options are
+  passed.  Instead, it raises a warning and ignores them (as it did silently
+  before 0.21).  This will be changed back to an error in a future release.
+
+
+0.21 (2014-09-10)
+=================
+
+Features added
+--------------
+
+* C (cdef) functions allow inner Python functions.
+
+* Enums can now be declared as cpdef to export their values to
+  the module's Python namespace.  Cpdef enums in pxd files export
+  their values to their own module, iff it exists.
+
+* Allow @staticmethod decorator to declare static cdef methods.
+  This is especially useful for declaring "constructors" for
+  cdef classes that can take non-Python arguments.
+
+* Taking a ``char*`` from a temporary Python string object is safer
+  in more cases and can be done inside of non-trivial expressions,
+  including arguments of a function call.  A compile time error
+  is raised only when such a pointer is assigned to a variable and
+  would thus exceed the lifetime of the string itself.
+
+* Generators have new properties ``__name__`` and ``__qualname__``
+  that provide the plain/qualified name of the generator function
+  (following CPython 3.5).  See http://bugs.python.org/issue21205
+
+* The ``inline`` function modifier is available as a decorator
+  ``@cython.inline`` in pure mode.
+
+* When cygdb is run in a virtualenv, it enables the same virtualenv
+  inside of the debugger. Patch by Marc Abramowitz.
+
+* PEP 465: dedicated infix operator for matrix multiplication (A @ B).
+
+* HTML output of annotated code uses Pygments for code highlighting
+  and generally received a major overhaul by Matthias Bussonier.
+
+* IPython magic support is now available directly from Cython with
+  the command "%load_ext cython".  Cython code can directly be
+  executed in a cell when marked with "%%cython".  Code analysis
+  is available with "%%cython -a".  Patch by Martín Gaitán.
+
+* Simple support for declaring Python object types in Python signature
+  annotations.  Currently requires setting the compiler directive
+  ``annotation_typing=True``.
+
+* New directive ``use_switch`` (defaults to True) to optionally disable
+  the optimization of chained if statement to C switch statements.
+
+* Defines dynamic_cast et al. in ``libcpp.cast`` and C++ heap data
+  structure operations in ``libcpp.algorithm``.
+
+* Shipped header declarations in ``posix.*`` were extended to cover
+  more of the POSIX API.  Patches by Lars Buitinck and Mark Peek.
+
+Optimizations
+-------------
+
+* Simple calls to C implemented Python functions/methods are faster.
+  This also speeds up many operations on builtins that Cython cannot
+  otherwise optimise.
+
+* The "and"/"or" operators try to avoid unnecessary coercions of their
+  arguments.  They now evaluate the truth value of each argument
+  independently and only coerce the final result of the whole expression
+  to the target type (e.g. the type on the left side of an assignment).
+  This also avoids reference counting overhead for Python values during
+  evaluation and generally improves the code flow in the generated C code.
+
+* The Python expression "2 ** N" is optimised into bit shifting.
+  See http://bugs.python.org/issue21420
+
+* Cascaded assignments (a = b = ...) try to minimise the number of
+  type coercions.
+
+* Calls to ``slice()`` are translated to a straight C-API call.
+
+Bugs fixed
+----------
+
+* Crash when assigning memory views from ternary conditional expressions.
+
+* Nested C++ templates could lead to unseparated ">>" characters being
+  generated into the C++ declarations, which older C++ compilers could
+  not parse.
+
+* Sending SIGINT (Ctrl-C) during parallel cythonize() builds could
+  hang the child processes.
+
+* No longer ignore local setup.cfg files for distutils in pyximport.
+  Patch by Martin Teichmann.
+
+* Taking a ``char*`` from an indexed Python string generated unsafe
+  reference counting code.
+
+* Set literals now create all of their items before trying to add them
+  to the set, following the behaviour in CPython.  This makes a
+  difference in the rare case that the item creation has side effects
+  and some items are not hashable (or if hashing them has side effects,
+  too).
+
+* Cython no longer generates the cross product of C functions for code
+  that uses memory views of fused types in function signatures (e.g.
+  ``cdef func(floating[:] a, floating[:] b)``).  This is considered the
+  expected behaviour by most users and was previously inconsistent with
+  other structured types like C arrays.  Code that really wants all type
+  combinations can create the same fused memoryview type under different
+  names and use those in the signature to make it clear which types are
+  independent.
+
+* Names that were unknown at compile time were looked up as builtins at
+  runtime but not as global module names.  Trying both lookups helps with
+  globals() manipulation.
+
+* Fixed stl container conversion for typedef element types.
+
+* ``obj.pop(x)`` truncated large C integer values of x to ``Py_ssize_t``.
+
+* ``__init__.pyc`` is recognised as marking a package directory
+  (in addition to .py, .pyx and .pxd).
+
+* Syntax highlighting in ``cython-mode.el`` for Emacs no longer
+  incorrectly highlights keywords found as part of longer names.
+
+* Correctly handle ``from cython.submodule cimport name``.
+
+* Fix infinite recursion when using super with cpdef methods.
+
+* No-args ``dir()`` was not guaranteed to return a sorted list.
+
+Other changes
+-------------
+
+* The header line in the generated C files no longer contains the
+  timestamp but only the Cython version that wrote it.  This was
+  changed to make builds more reproducible.
+
 * Removed support for CPython 2.4, 2.5 and 3.1.
 
+* The licensing implications on the generated code were clarified
+  to avoid legal constraints for users.
 
-0.20.2
+
+0.20.2 (2014-06-16)
 ===================
 
 Features added
@@ -33,6 +662,13 @@ Features added
 
 Bugs fixed
 ----------
+
+* Access to attributes of optimised builtin methods (e.g.
+  ``[].append.__name__``) could fail to compile.
+
+* Memory leak when extension subtypes add a memory view as attribute
+  to those of the parent type without having Python object attributes
+  or a user provided dealloc method.
 
 * Compiler crash on readonly properties in "binding" mode.
 
@@ -47,7 +683,7 @@ Bugs fixed
 * Memory leak in memory views when copying overlapping, contiguous slices.
 
 * Format checking when requesting non-contiguous buffers from
-  ``cython.array`` objects was disabled in Py3.
+  ``cython.array`` objects was accidentally omitted in Py3.
 
 * C++ destructor calls in extension types could fail to compile in clang.
 
@@ -86,7 +722,6 @@ Bugs fixed
 * Type inference could deduce unsafe or inefficient types from integer
   assignments within a mix of inferred Python variables and integer
   variables.
-
 
 
 0.20 (2014-01-18)
@@ -272,7 +907,7 @@ Bugs fixed
 * ``isinstance(X, type)`` failed to get optimised into a call to
   ``PyType_Check()``, as done for other builtin types.
 
-* A spurious "from datetime cimport *" was removed from the "cpython"
+* A spurious ``from datetime cimport *`` was removed from the "cpython"
   declaration package. This means that the "datetime" declarations
   (added in 0.19) are no longer available directly from the "cpython"
   namespace, but only from "cpython.datetime". This is the correct

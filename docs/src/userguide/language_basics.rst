@@ -31,7 +31,7 @@ and C :keyword:`struct`, :keyword:`union` or :keyword:`enum` types::
         float *eggs
 
     cdef enum CheeseType:
-        cheddar, edam, 
+        cheddar, edam,
         camembert
 
     cdef enum CheeseState:
@@ -64,6 +64,37 @@ an anonymous :keyword:`enum` declaration for this purpose, for example,::
 
         ctypedef int* IntPtr
 
+
+Types
+-----
+
+Cython uses the normal C syntax for C types, including pointers.  It provides
+all the standard C types, namely ``char``, ``short``, ``int``, ``long``,
+``long long`` as well as their ``unsigned`` versions, e.g. ``unsigned int``.
+The special ``bint`` type is used for C boolean values (``int`` with 0/non-0
+values for False/True) and ``Py_ssize_t`` for (signed) sizes of Python
+containers.
+
+Pointer types are constructed as in C, by appending a ``*`` to the base type
+they point to, e.g. ``int**`` for a pointer to a pointer to a C int.
+Arrays use the normal C array syntax, e.g. ``int[10]``.  Note that Cython uses
+array access for pointer dereferencing, as ``*x`` is not valid Python syntax,
+whereas ``x[0]`` is.
+
+Also, the Python types ``list``, ``dict``, ``tuple``, etc. may be used for
+static typing, as well as any user defined extension types.  The Python types
+int, long, and float are not available for static typing and instead interpreted as C
+``int``, ``long``, and ``float`` respectively, as statically typing variables with these Python
+types has zero advantages.
+While these C types can be vastly faster, they have C semantics.
+Specifically, the integer types overflow
+and the C ``float`` type only has 32 bits of precision
+(as opposed to the 64-bit C ``double`` which Python floats wrap
+and is typically what one wants).
+If you want to use these numeric Python types simply omit the
+type declaration and let them be objects.
+
+
 Grouping multiple C declarations
 --------------------------------
 
@@ -92,14 +123,14 @@ Python objects as parameters and return Python objects.
 
 C functions are defined using the new :keyword:`cdef` statement. They take
 either Python objects or C values as parameters, and can return either Python
-objects or C values. 
+objects or C values.
 
 Within a Cython module, Python functions and C functions can call each other
 freely, but only Python functions can be called from outside the module by
 interpreted Python code. So, any functions that you want to "export" from your
-Cython module must be declared as Python functions using def. 
-There is also a hybrid function, called :keyword:`cpdef`. A :keyword:`cpdef` 
-can be called from anywhere, but uses the faster C calling conventions 
+Cython module must be declared as Python functions using def.
+There is also a hybrid function, called :keyword:`cpdef`. A :keyword:`cpdef`
+can be called from anywhere, but uses the faster C calling conventions
 when being called from other Cython code. A :keyword:`cpdef` can also be overridden
 by a Python method on a subclass or an instance attribute, even when called from Cython.
 If this happens, most performance gains are of course lost and even if it does not,
@@ -135,6 +166,10 @@ with string attributes if they are to be used after the function returns.
 
 C functions, on the other hand, can have parameters of any type, since they're
 passed in directly using a normal C function call.
+
+Functions declared using :keyword:`cdef`, like Python functions, will return a :keyword:`False`
+value when execution leaves the function body without an explicit return value. This is in
+contrast to C/C++, which leaves the return value undefined. 
 
 A more complete comparison of the pros and cons of these different method
 types can be found at :ref:`early-binding-for-speed`.
@@ -192,7 +227,11 @@ returns ``-1``, an exception will be assumed to have occurred and will be
 propagated.
 
 When you declare an exception value for a function, you should never
-explicitly return that value. If all possible return values are legal and you
+explicitly or implicitly return that value. In particular, if the exceptional return value
+is a ``False`` value, then you should ensure the function will never terminate via an implicit
+or empty return.
+
+If all possible return values are legal and you
 can't reserve one entirely for signalling errors, you can use an alternative
 form of exception value declaration::
 
@@ -212,18 +251,18 @@ This form causes Cython to generate a call to :c:func:`PyErr_Occurred` after
 every call to spam, regardless of what value it returns. If you have a
 function returning void that needs to propagate errors, you will have to use
 this form, since there isn't any return value to test.
-Otherwise there is little use for this form. 
+Otherwise there is little use for this form.
 
 An external C++ function that may raise an exception can be declared with::
 
     cdef int spam() except +
 
-See :ref:`wrapping-cplusplus` for more details. 
+See :ref:`wrapping-cplusplus` for more details.
 
 Some things to note:
 
 * Exception values can only declared for functions returning an integer, enum,
-  float or pointer type, and the value must be a constant expression. 
+  float or pointer type, and the value must be a constant expression.
   Void functions can only use the ``except *`` form.
 * The exception value specification is part of the signature of the function.
   If you're passing a pointer to a function as a parameter or assigning it
@@ -236,7 +275,7 @@ Some things to note:
 
 * You don't need to (and shouldn't) declare exception values for functions
   which return Python objects. Remember that a function with no declared
-  return type implicitly returns a Python object. (Exceptions on such functions 
+  return type implicitly returns a Python object. (Exceptions on such functions
   are implicitly propagated by returning NULL.)
 
 Checking return values of non-Cython functions
@@ -260,7 +299,7 @@ return value and raise it yourself, for example,::
     if p == NULL:
         raise SpamError("Couldn't open the spam file")
 
-    
+
 Automatic type conversions
 ==========================
 
@@ -272,22 +311,30 @@ possibilities.
 +----------------------------+--------------------+------------------+
 | C types                    | From Python types  | To Python types  |
 +============================+====================+==================+
-| [unsigned] char            | int, long          | int              |
-| [unsigned] short           |                    |                  |
+| [unsigned] char,           | int, long          | int              |
+| [unsigned] short,          |                    |                  |
 | int, long                  |                    |                  |
 +----------------------------+--------------------+------------------+
-| unsigned int               | int, long          | long             |
-| unsigned long              |                    |                  |
+| unsigned int,              | int, long          | long             |
+| unsigned long,             |                    |                  |
 | [unsigned] long long       |                    |                  |
 +----------------------------+--------------------+------------------+
 | float, double, long double | int, long, float   | float            |
 +----------------------------+--------------------+------------------+
 | char*                      | str/bytes          | str/bytes [#]_   |
 +----------------------------+--------------------+------------------+
-| struct                     |                    | dict             |
+| struct,                    |                    | dict [#1]_       |
+| union                      |                    |                  |
 +----------------------------+--------------------+------------------+
 
-.. [#] The conversion is to/from str for Python 2.x, and bytes for Python 3.x. 
+.. [#] The conversion is to/from str for Python 2.x, and bytes for Python 3.x.
+
+.. [#1] The conversion from a C union type to a Python dict will add
+   a value for each of the union fields.  Cython 0.23 and later, however,
+   will refuse to automatically convert a union with unsafe type
+   combinations.  An example is a union of an ``int`` and a ``char*``,
+   in which case the pointer value may or be not be a valid pointer.
+
 
 Caveats when using a Python string in a C context
 -------------------------------------------------
@@ -352,9 +399,9 @@ direct equivalent in Python.
 
 * An integer literal is treated as a C constant, and will
   be truncated to whatever size your C compiler thinks appropriate.
-  To get a Python integer (of arbitrary precision) cast immediately to 
-  an object (e.g. ``<object>100000000000000000000``). The ``L``, ``LL``, 
-  and ``U`` suffixes have the same meaning as in C. 
+  To get a Python integer (of arbitrary precision) cast immediately to
+  an object (e.g. ``<object>100000000000000000000``). The ``L``, ``LL``,
+  and ``U`` suffixes have the same meaning as in C.
 * There is no ``->`` operator in Cython. Instead of ``p->x``, use ``p.x``
 * There is no unary ``*`` operator in Cython. Instead of ``*p``, use ``p[0]``
 * There is an ``&`` operator, with the same semantics as in C.
@@ -370,26 +417,9 @@ Scope rules
 Cython determines whether a variable belongs to a local scope, the module
 scope, or the built-in scope completely statically. As with Python, assigning
 to a variable which is not otherwise declared implicitly declares it to be a
-Python variable residing in the scope where it is assigned.
-
-.. note::
-    A consequence of these rules is that the module-level scope behaves the
-    same way as a Python local scope if you refer to a variable before assigning
-    to it. In particular, tricks such as the following will not work in Cython::
-
-        try:
-            x = True
-        except NameError:
-            True = 1
-
-    because, due to the assignment, the True will always be looked up in the
-    module-level scope. You would have to do something like this instead::
-
-        import __builtin__
-        try:
-            True = __builtin__.True
-        except AttributeError:
-            True = 1
+variable residing in the scope where it is assigned.  The type of the variable
+depends on type inference, except for the global module scope, where it is
+always a Python object.
 
 
 Built-in Functions
@@ -495,7 +525,7 @@ Some things to note about the for-from loop:
 * The name between the lower and upper bounds must be the same as the target
   name.
 * The direction of iteration is determined by the relations. If they are both
-  from the set {``<``, ``<=``} then it is upwards; if they are both from the set 
+  from the set {``<``, ``<=``} then it is upwards; if they are both from the set
   {``>``, ``>=``} then it is downwards. (Any other combination is disallowed.)
 
 Like other Python looping statements, break and continue may be used in the
@@ -505,8 +535,8 @@ body, and the loop may have an else clause.
 The include statement
 =====================
 
-.. warning:: 
-    Historically the ``include`` statement was used for sharing declarations. 
+.. warning::
+    Historically the ``include`` statement was used for sharing declarations.
     Use :ref:`sharing-declarations` instead.
 
 A Cython source file can include material from other files using the include
@@ -539,7 +569,7 @@ Compile-Time Definitions
 
 A compile-time constant can be defined using the DEF statement::
 
-    DEF FavouriteFood = "spam"
+    DEF FavouriteFood = u"spam"
     DEF ArraySize = 42
     DEF OtherArraySize = 2 * ArraySize + 17
 
@@ -556,16 +586,21 @@ returned by :func:`os.uname`.
 The following selection of builtin constants and functions are also available:
 
     None, True, False,
-    abs, bool, chr, cmp, complex, dict, divmod, enumerate,
-    float, hash, hex, int, len, list, long, map, max, min,
-    oct, ord, pow, range, reduce, repr, round, slice, str,
-    sum, tuple, xrange, zip
+    abs, all, any, ascii, bin, bool, bytearray, bytes, chr, cmp, complex, dict,
+    divmod, enumerate, filter, float, format, frozenset, hash, hex, int, len,
+    list, long, map, max, min, oct, ord, pow, range, reduce, repr, reversed,
+    round, set, slice, sorted, str, sum, tuple, xrange, zip
+
+Note that some of these builtins may not be available when compiling under
+Python 2.x or 3.x, or may behave differently in both.
 
 A name defined using ``DEF`` can be used anywhere an identifier can appear,
 and it is replaced with its compile-time value as though it were written into
 the source at that point as a literal. For this to work, the compile-time
 expression must evaluate to a Python value of type ``int``, ``long``,
-``float`` or ``str``.::
+``float``, ``bytes`` or ``unicode`` (``str`` in Py3).
+
+::
 
     cdef int a1[ArraySize]
     cdef int a2[OtherArraySize]

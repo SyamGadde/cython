@@ -1,4 +1,5 @@
-# tag: cpp
+# mode: run
+# tag: cpp, werror
 
 from libcpp.vector cimport vector
 
@@ -7,21 +8,24 @@ cdef extern from "shapes.h" namespace "shapes":
     cdef cppclass Shape:
         float area()
 
-    cdef cppclass Circle(Shape):
+    cdef cppclass Ellipse(Shape):
+        Ellipse(int a, int b) except +
+
+    cdef cppclass Circle(Ellipse):
         int radius
-        Circle(int) except +
+        Circle(int r) except +
 
     cdef cppclass Rectangle(Shape):
         int width
         int height
         Rectangle() except +
-        Rectangle(int, int) except +
-        int method(int)
-        int method(bint)
+        Rectangle(int h, int w) except +
+        int method(int x)
+        int method(bint b)
 
     cdef cppclass Square(Rectangle):
         int side
-        Square(int) except +
+        Square(int s) except +
 
     cdef cppclass Empty(Shape):
         pass
@@ -125,6 +129,9 @@ def test_stack_allocation(int w, int h):
 cdef class EmptyHolder:
     cdef Empty empty
 
+cdef class AnotherEmptyHolder(EmptyHolder):
+    cdef Empty another_empty
+
 def test_class_member():
     """
     >>> test_class_member()
@@ -141,6 +148,19 @@ def test_class_member():
     assert destructor_count - start_destructor_count == 2, \
            destructor_count - start_destructor_count
 
+def test_derived_class_member():
+    """
+    >>> test_derived_class_member()
+    """
+    start_constructor_count = constructor_count
+    start_destructor_count = destructor_count
+    e = AnotherEmptyHolder()
+    assert constructor_count - start_constructor_count == 2, \
+           constructor_count - start_constructor_count
+    del e
+    assert destructor_count - start_destructor_count == 2, \
+           destructor_count - start_destructor_count
+
 cdef class TemplateClassMember:
     cdef vector[int] x
     cdef vector[vector[Empty]] vec
@@ -154,7 +174,7 @@ def test_template_class_member():
     inner.push_back(Empty())
     o = TemplateClassMember()
     o.vec.push_back(inner)
-    
+
     start_destructor_count = destructor_count
     del o
     assert destructor_count - start_destructor_count == 2, \

@@ -5,6 +5,10 @@ cimport cython
 cdef Py_UNICODE char_ASCII = u'A'
 cdef Py_UNICODE char_KLINGON = u'\uF8D2'
 
+u_A = char_ASCII
+u_KLINGON = char_KLINGON
+
+
 def compare_ASCII():
     """
     >>> compare_ASCII()
@@ -78,6 +82,19 @@ def unicode_ordinal(Py_UNICODE i):
     """
     return i
 
+
+def ord_pyunicode(Py_UNICODE x):
+    """
+    >>> ord_pyunicode(u0)
+    0
+    >>> ord_pyunicode(u_A)
+    65
+    >>> ord_pyunicode(u_KLINGON)
+    63698
+    """
+    return ord(x)
+
+
 @cython.test_assert_path_exists('//PythonCapiCallNode')
 @cython.test_fail_if_path_exists('//SimpleCallNode')
 def unicode_type_methods(Py_UNICODE uchar):
@@ -128,6 +145,7 @@ def len_uchar(Py_UNICODE uchar):
     >>> len_uchar(ord('A'))
     1
     """
+    assert uchar  # just to avoid C compiler unused arg warning
     return len(uchar)
 
 def index_uchar(Py_UNICODE uchar, Py_ssize_t i):

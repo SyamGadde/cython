@@ -3,11 +3,20 @@
 #            anywhere else in particular
 #
 
+from __future__ import absolute_import
+
+try:
+    from __builtin__ import basestring
+except ImportError:
+    basestring = str
+
 import os
 import sys
 import re
 import io
 import codecs
+import shutil
+from contextlib import contextmanager
 
 modification_time = os.path.getmtime
 
@@ -20,6 +29,7 @@ def cached_function(f):
         if res is uncomputed:
             res = cache[args] = f(*args)
         return res
+    wrapper.uncached = f
     return wrapper
 
 def cached_method(f):
@@ -74,6 +84,34 @@ def castrate_file(path, st):
 def file_newer_than(path, time):
     ftime = modification_time(path)
     return ftime > time
+
+
+def safe_makedirs(path):
+    try:
+        os.makedirs(path)
+    except OSError:
+        if not os.path.isdir(path):
+            raise
+
+
+def copy_file_to_dir_if_newer(sourcefile, destdir):
+    """
+    Copy file sourcefile to directory destdir (creating it if needed),
+    preserving metadata. If the destination file exists and is not
+    older than the source file, the copying is skipped.
+    """
+    destfile = os.path.join(destdir, os.path.basename(sourcefile))
+    try:
+        desttime = modification_time(destfile)
+    except OSError:
+        # New file does not exist, destdir may or may not exist
+        safe_makedirs(destdir)
+    else:
+        # New file already exists
+        if not file_newer_than(sourcefile, desttime):
+            return
+    shutil.copy2(sourcefile, destfile)
+
 
 @cached_function
 def search_include_directories(dirs, qualified_name, suffix, pos,
@@ -144,6 +182,7 @@ def check_package_dir(dir, package_names):
 @cached_function
 def is_package_dir(dir_path):
     for filename in ("__init__.py",
+                     "__init__.pyc",
                      "__init__.pyx",
                      "__init__.pxd"):
         path = os.path.join(dir_path, filename)
@@ -177,15 +216,14 @@ def path_exists(path):
 # file name encodings
 
 def decode_filename(filename):
-    if isinstance(filename, unicode):
-        return filename
-    try:
-        filename_encoding = sys.getfilesystemencoding()
-        if filename_encoding is None:
-            filename_encoding = sys.getdefaultencoding()
-        filename = filename.decode(filename_encoding)
-    except UnicodeDecodeError:
-        pass
+    if isinstance(filename, bytes):
+        try:
+            filename_encoding = sys.getfilesystemencoding()
+            if filename_encoding is None:
+                filename_encoding = sys.getdefaultencoding()
+            filename = filename.decode(filename_encoding)
+        except UnicodeDecodeError:
+            pass
     return filename
 
 # support for source file encoding detection
@@ -241,16 +279,13 @@ def skip_bom(f):
 
 
 def open_source_file(source_filename, mode="r",
-                     encoding=None, error_handling=None,
-                     require_normalised_newlines=True):
+                     encoding=None, error_handling=None):
     if encoding is None:
         # Most of the time the coding is unspecified, so be optimistic that
         # it's UTF-8.
         f = open_source_file(source_filename, encoding="UTF-8", mode=mode, error_handling='ignore')
         encoding = detect_opened_file_encoding(f)
-        if (encoding == "UTF-8"
-                and error_handling == 'ignore'
-                and require_normalised_newlines):
+        if encoding == "UTF-8" and error_handling == 'ignore':
             f.seek(0)
             skip_bom(f)
             return f
@@ -263,8 +298,7 @@ def open_source_file(source_filename, mode="r",
             if source_filename.startswith(loader.archive):
                 return open_source_from_loader(
                     loader, source_filename,
-                    encoding, error_handling,
-                    require_normalised_newlines)
+                    encoding, error_handling)
         except (NameError, AttributeError):
             pass
 
@@ -276,8 +310,7 @@ def open_source_file(source_filename, mode="r",
 
 def open_source_from_loader(loader,
                             source_filename,
-                            encoding=None, error_handling=None,
-                            require_normalised_newlines=True):
+                            encoding=None, error_handling=None):
     nrmpath = os.path.normpath(source_filename)
     arcname = nrmpath[len(loader.archive)+1:]
     data = loader.get_data(arcname)
@@ -288,17 +321,22 @@ def open_source_from_loader(loader,
 
 def str_to_number(value):
     # note: this expects a string as input that was accepted by the
-    # parser already
+    # parser already, with an optional "-" sign in front
+    is_neg = False
+    if value[:1] == '-':
+        is_neg = True
+        value = value[1:]
     if len(value) < 2:
         value = int(value, 0)
     elif value[0] == '0':
-        if value[1] in 'xX':
+        literal_type = value[1]  # 0'o' - 0'b' - 0'x'
+        if literal_type in 'xX':
             # hex notation ('0x1AF')
             value = int(value[2:], 16)
-        elif value[1] in 'oO':
+        elif literal_type in 'oO':
             # Py3 octal notation ('0o136')
             value = int(value[2:], 8)
-        elif value[1] in 'bB':
+        elif literal_type in 'bB':
             # Py3 binary notation ('0b101')
             value = int(value[2:], 2)
         else:
@@ -306,7 +344,7 @@ def str_to_number(value):
             value = int(value, 8)
     else:
         value = int(value, 0)
-    return value
+    return -value if is_neg else value
 
 
 def long_literal(value):
@@ -343,3 +381,87 @@ def get_cython_cache_dir():
 
     # last fallback: ~/.cython
     return os.path.expanduser(os.path.join('~', '.cython'))
+
+
+@contextmanager
+def captured_fd(stream=2, encoding=None):
+    pipe_in = t = None
+    orig_stream = os.dup(stream)  # keep copy of original stream
+    try:
+        pipe_in, pipe_out = os.pipe()
+        os.dup2(pipe_out, stream)  # replace stream by copy of pipe
+        try:
+            os.close(pipe_out)  # close original pipe-out stream
+            data = []
+
+            def copy():
+                try:
+                    while True:
+                        d = os.read(pipe_in, 1000)
+                        if d:
+                            data.append(d)
+                        else:
+                            break
+                finally:
+                    os.close(pipe_in)
+
+            def get_output():
+                output = b''.join(data)
+                if encoding:
+                    output = output.decode(encoding)
+                return output
+
+            from threading import Thread
+            t = Thread(target=copy)
+            t.daemon = True  # just in case
+            t.start()
+            yield get_output
+        finally:
+            os.dup2(orig_stream, stream)  # restore original stream
+            if t is not None:
+                t.join()
+    finally:
+        os.close(orig_stream)
+
+
+def print_bytes(s, end=b'\n', file=sys.stdout, flush=True):
+    file.flush()
+    try:
+        out = file.buffer  # Py3
+    except AttributeError:
+        out = file         # Py2
+    out.write(s)
+    if end:
+        out.write(end)
+    if flush:
+        out.flush()
+
+class LazyStr:
+    def __init__(self, callback):
+        self.callback = callback
+    def __str__(self):
+        return self.callback()
+    def __repr__(self):
+        return self.callback()
+    def __add__(self, right):
+        return self.callback() + right
+    def __radd__(self, left):
+        return left + self.callback()
+
+
+# Class decorator that adds a metaclass and recreates the class with it.
+# Copied from 'six'.
+def add_metaclass(metaclass):
+    """Class decorator for creating a class with a metaclass."""
+    def wrapper(cls):
+        orig_vars = cls.__dict__.copy()
+        slots = orig_vars.get('__slots__')
+        if slots is not None:
+            if isinstance(slots, str):
+                slots = [slots]
+            for slots_var in slots:
+                orig_vars.pop(slots_var)
+        orig_vars.pop('__dict__', None)
+        orig_vars.pop('__weakref__', None)
+        return metaclass(cls.__name__, cls.__bases__, orig_vars)
+    return wrapper

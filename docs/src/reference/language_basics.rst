@@ -66,7 +66,7 @@ cimport
 
 * Use the **cimport** statement, as you would Python's import statement, to access these files
   from other definition or implementation files.
-* **cimport** does not need to be called in ``.pyx`` file for for ``.pxd`` file that has the
+* **cimport** does not need to be called in ``.pyx`` file for ``.pxd`` file that has the
   same name, as they are already in the same namespace.
 * For cimport to find the stated definition file, the path to the file must be appended to the
   ``-I`` option of the **Cython compile command**.
@@ -153,7 +153,9 @@ the same effect as the C directive ``#pragma pack(1)``.
         cheddar, edam,
         camembert
 
-    cdef enum CheeseState:
+Declaring an enum as ```cpdef`` will create a PEP 435-style Python wrapper::
+
+    cpdef enum CheeseState:
         hard = 1
         soft = 2
         runny = 3
@@ -297,7 +299,7 @@ Optional Arguments
 Keyword-only Arguments
 =======================
 
-* As in Python 3, ``def`` functions can have keyword-only argurments listed after a ``"*"`` parameter and before a ``"**"`` parameter if any::
+* As in Python 3, ``def`` functions can have keyword-only arguments listed after a ``"*"`` parameter and before a ``"**"`` parameter if any::
 
     def f(a, b, *args, c, d = 42, e, **kwds):
         ...
@@ -703,7 +705,7 @@ Error and Exception Handling
     .. note:: Python Objects
 
         * Declared exception values are **not** need.
-        * Remember that Cython assumes that a function function without a declared return value, returns a Python object.
+        * Remember that Cython assumes that a function without a declared return value, returns a Python object.
         * Exceptions on such functions are implicitly propagated by returning ``NULL``
 
     .. note:: C++
@@ -803,16 +805,3 @@ Conditional Statements
 
 
 .. [#] The conversion is to/from str for Python 2.x, and bytes for Python 3.x.
-
-
-
-
-
-
-
-
-
-
-
-
-
